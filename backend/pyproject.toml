@@ -1,0 +1,43 @@
+[project]
+name = "garmin-coach"
+version = "0.1.0"
+description = "Self-hosted training coach built on Garmin data"
+requires-python = ">=3.13"
+dependencies = [
+    "alembic>=1.20.1",
+    "apscheduler>=3.11.3",
+    "fastapi>=0.162.0",
+    "garminconnect==0.3.20",
+    "pydantic-settings>=2.16.2",
+    "sqlalchemy>=2.1.6",
+    "uvicorn[standard]>=0.54.0",
+]
+
+[project.scripts]
+coach = "garmin_coach.cli:main"
+
+[build-system]
+requires = ["uv_build>=0.11.26,<0.12.0"]
+build-backend = "uv_build"
+
+[dependency-groups]
+dev = [
+    "mypy>=2.4.1",
+    "pytest>=9.2.0",
+    "ruff>=0.17.3",
+]
+
+[tool.ruff]
+line-length = 100
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "B", "UP", "SIM", "RUF"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+
+[tool.mypy]
+strict = true
+
+[tool.ruff.lint.per-file-ignores]
+"src/garmin_coach/migrations/versions/*" = ["E501", "UP", "RUF"]

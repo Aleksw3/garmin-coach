@@ -2,6 +2,31 @@
 
 A self-hosted training coach that syncs Garmin data to a home server (a Raspberry Pi in the end) and plans training with Claude. See [docs/PLAN.md](docs/PLAN.md).
 
+## Backend
+
+The backend in `backend/` is a Python package managed with [uv](https://docs.astral.sh/uv/). It stores everything in `data/coach.db` (SQLite) and reuses the Garmin tokens in `data/garmin_tokens/`. Each command applies database migrations before it runs.
+
+```
+cd backend
+uv run coach sync                  # fetch the last 14 days, refetching the last 3
+uv run coach backfill --days 730   # fetch 2 years of history, resumes where it stopped
+uv run coach weeks --weeks 4       # weekly distance, time and climbing per sport group
+uv run coach status                # counts, last sync runs, unmapped activity types
+uv run coach rebuild               # rebuild the core tables from the stored raw JSON
+uv run coach import-probe ../data/probe/<timestamp>   # load a probe dump without calling Garmin
+```
+
+Settings come from environment variables or a `.env` file at the repo root: `DATA_DIR`, `GARMIN_EMAIL`, `GARMIN_PASSWORD`, `GARMIN_REQUEST_DELAY` (seconds between requests, default 2).
+
+Development checks:
+
+```
+cd backend
+uv run pytest
+uv run ruff check src tests && uv run ruff format --check src tests
+uv run mypy src tests
+```
+
 ## Phase 0: Garmin probe
 
 `scripts/garmin_probe.py` checks that Garmin login and data pulls work on a machine. It needs [uv](https://docs.astral.sh/uv/), which installs Python 3.12+ and the script's dependencies on first run.

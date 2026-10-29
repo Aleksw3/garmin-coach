@@ -18,11 +18,13 @@ uv run coach import-probe ../data/probe/<timestamp>   # load a probe dump withou
 
 Settings come from environment variables or a `.env` file at the repo root: `DATA_DIR`, `FRONTEND_DIR`, `GARMIN_EMAIL`, `GARMIN_PASSWORD`, `GARMIN_REQUEST_DELAY` (seconds between requests, default 2), `TRIMP_COEFFICIENT` (1.92 by default, the value Banister used for men; 1.67 is the value for women). TRIMP only fills in load for activities where Garmin has none.
 
+The coach chat needs `ANTHROPIC_API_KEY` from https://platform.claude.com. `CHAT_MODEL` (default `claude-sonnet-5-5`) and `CHAT_EFFORT` (default `low`) pick the model and how much it thinks. `MONTHLY_BUDGET_USD` (default 5) caps the API cost: when a month's spending reaches it, chat stops until the 1st. Each API call's tokens and cost are logged in the `api_usage` table and shown on the Settings page.
+
 `uv run coach metrics` prints load, HRV and resting HR against their baselines, running weeks and strength volume. `uv run coach serve` runs the web app on http://127.0.0.1:8000 and syncs with Garmin at 5 minutes past every hour from 05:00 to 23:00 (`--no-schedule` turns that off).
 
 ## Frontend
 
-The web UI in `frontend/` is React, Vite, Tailwind and ECharts. `npm run build` writes `frontend/dist`, which `coach serve` serves. For development, run `coach serve` and `npm run dev` side by side; Vite proxies `/api` to port 8000.
+The web UI in `frontend/` is React, Vite, Tailwind and ECharts. It has five pages: Today, Chat, Trends, Goals (goals, profile and the coach's notes) and Settings (API cost). `npm run build` writes `frontend/dist`, which `coach serve` serves. For development, run `coach serve` and `npm run dev` side by side; Vite proxies `/api` to port 8000.
 
 ```
 cd frontend

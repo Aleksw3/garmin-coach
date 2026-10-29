@@ -112,3 +112,113 @@ export const fetchToday = () => request<Today>('/api/today')
 export const fetchTrends = (weeks: number) => request<Trends>(`/api/trends?weeks=${weeks}`)
 export const fetchSyncStatus = () => request<SyncStatus>('/api/sync')
 export const startSync = () => request<SyncStatus>('/api/sync', { method: 'POST' })
+
+export type Conversation = { id: number; title: string | null; updated_at: string }
+
+export type ToolCall = { id: string; name: string; input: Record<string, unknown>; ok: boolean | null }
+
+export type ChatItem = { role: 'user' | 'coach'; text: string; tools: ToolCall[]; created_at: string }
+
+export type ConversationDetail = Conversation & { items: ChatItem[] }
+
+export type ChatEvent =
+  | { type: 'text'; text: string }
+  | { type: 'tool_call'; id: string; name: string; input: Record<string, unknown> }
+  | { type: 'tool_result'; id: string; ok: boolean }
+  | { type: 'error'; message: string }
+  | { type: 'done'; turn_cost_usd: number; month_cost_usd: number; budget_usd: number }
+
+export type Profile = {
+  name: string | null
+  birth_year: number | null
+  sex: string | null
+  height_cm: number | null
+  max_hr: number | null
+  training_days: string | null
+  injuries: string | null
+  equipment: string | null
+  notes: string | null
+}
+
+export type GoalInput = {
+  kind: 'race' | 'strength' | 'habit' | 'other'
+  title: string
+  target_date: string | null
+  target: string | null
+  distance_km: number | null
+  elevation_gain_m: number | null
+  terrain: string | null
+  cutoffs: string | null
+  notes: string | null
+  priority: 'A' | 'B' | 'C'
+  status: 'active' | 'done' | 'dropped'
+}
+
+export type Goal = GoalInput & { id: number }
+
+export type Note = { id: number; created_at: string; text: string }
+
+export type UsageRow = {
+  created_at: string
+  model: string
+  purpose: string
+  input_tokens: number
+  cache_write_tokens: number
+  cache_read_tokens: number
+  output_tokens: number
+  cost_usd: number
+}
+
+export type Usage = {
+  month_cost_usd: number
+  budget_usd: number
+  calls_this_month: number
+  chat_model: string
+  recent: UsageRow[]
+}
+
+const json = (method: string, body: unknown): RequestInit => ({
+  method,
+  headers: { 'Content-Type': 'application/json' },
+  body: JSON.stringify(body),
+})
+
+async function send(path: string, init: RequestInit): Promise<void> {
+  const response = await fetch(path, init)
+  if (!response.ok) throw new Error(`${init.method} ${path} failed with ${response.status}`)
+}
+
+export const fetchConversations = () => request<Conversation[]>('/api/conversations')
+export const createConversation = () => request<Conversation>('/api/conversations', { method: 'POST' })
+export const fetchConversation = (id: number) => request<ConversationDetail>(`/api/conversations/${id}`)
+export const deleteConversation = (id: number) => send(`/api/conversations/${id}`, { method: 'DELETE' })
+export const fetchProfile = () => request<Profile>('/api/profile')
+export const saveProfile = (profile: Profile) => request<Profile>('/api/profile', json('PUT', profile))
+export const fetchGoals = () => request<Goal[]>('/api/goals')
+export const createGoal = (goal: GoalInput) => request<Goal>('/api/goals', json('POST', goal))
+export const updateGoal = (id: number, goal: GoalInput) => request<Goal>(`/api/goals/${id}`, json('PUT', goal))
+export const deleteGoal = (id: number) => send(`/api/goals/${id}`, { method: 'DELETE' })
+export const fetchNotes = () => request<Note[]>('/api/notes')
+export const deleteNote = (id: number) => send(`/api/notes/${id}`, { method: 'DELETE' })
+export const fetchUsage = () => request<Usage>('/api/usage')
+
+export async function streamMessage(
+  conversationId: number,
+  text: string,
+  onEvent: (event: ChatEvent) => void,
+): Promise<void> {
+  const response = await fetch(`/api/conversations/${conversationId}/messages`, json('POST', { text }))
+  if (!response.ok || !response.body) throw new Error(`Sending failed with ${response.status}`)
+  const reader = response.body.pipeThrough(new TextDecoderStream()).getReader()
+  let buffer = ''
+  for (;;) {
+    const { done, value } = await reader.read()
+    if (done) break
+    buffer += value
+    const chunks = buffer.split('\n\n')
+    buffer = chunks.pop() ?? ''
+    for (const chunk of chunks) {
+      if (chunk.startsWith('data: ')) onEvent(JSON.parse(chunk.slice(6)) as ChatEvent)
+    }
+  }
+}

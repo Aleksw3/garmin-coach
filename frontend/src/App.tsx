@@ -4,10 +4,16 @@ import { fetchSyncStatus, startSync } from './api'
 import { TodayPage } from './pages/Today'
 
 const TrendsPage = lazy(() => import('./pages/Trends').then((m) => ({ default: m.TrendsPage })))
+const ChatPage = lazy(() => import('./pages/Chat').then((m) => ({ default: m.ChatPage })))
+const GoalsPage = lazy(() => import('./pages/Goals').then((m) => ({ default: m.GoalsPage })))
+const SettingsPage = lazy(() => import('./pages/Settings').then((m) => ({ default: m.SettingsPage })))
 
 const PAGES = [
-  { hash: '#today', label: 'Today' },
-  { hash: '#trends', label: 'Trends' },
+  { hash: '#today', label: 'Today', element: <TodayPage /> },
+  { hash: '#chat', label: 'Chat', element: <ChatPage /> },
+  { hash: '#trends', label: 'Trends', element: <TrendsPage /> },
+  { hash: '#goals', label: 'Goals', element: <GoalsPage /> },
+  { hash: '#settings', label: 'Settings', element: <SettingsPage /> },
 ]
 
 function useHashPage(): string {
@@ -74,13 +80,13 @@ export default function App() {
   return (
     <div className="mx-auto min-h-screen max-w-5xl px-4 pt-[max(1rem,env(safe-area-inset-top))] pb-10">
       <header className="mb-4 flex items-center justify-between gap-3">
-        <nav className="flex gap-1">
+        <nav className="-mx-1 flex min-w-0 gap-0.5 overflow-x-auto sm:gap-1">
           {PAGES.map((p) => (
             <a
               key={p.hash}
               href={p.hash}
               aria-current={page === p.hash ? 'page' : undefined}
-              className={`rounded-lg px-3 py-1.5 text-sm ${
+              className={`shrink-0 rounded-lg px-2 py-1.5 text-sm sm:px-3 ${
                 page === p.hash ? 'bg-raised font-semibold text-primary' : 'text-secondary hover:bg-raised'
               }`}
             >
@@ -92,7 +98,7 @@ export default function App() {
       </header>
       <main>
         <Suspense fallback={<p className="text-sm text-muted">Loading…</p>}>
-          {page === '#trends' ? <TrendsPage /> : <TodayPage />}
+          {PAGES.find((p) => p.hash === page)?.element}
         </Suspense>
       </main>
     </div>

@@ -5,6 +5,7 @@ description = "Self-hosted training coach built on Garmin data"
 requires-python = ">=3.13"
 dependencies = [
     "alembic>=1.20.1",
+    "anthropic>=2.3.0",
     "apscheduler>=3.11.3",
     "fastapi>=0.162.0",
     "garminconnect==0.3.20",

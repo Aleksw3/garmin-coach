@@ -17,6 +17,10 @@ class Settings(BaseSettings):
     recent_sync_days: int = 14
     daily_refresh_days: int = 3
     trimp_coefficient: float = 1.92
+    anthropic_api_key: str | None = None
+    chat_model: str = "claude-sonnet-5-5"
+    chat_effort: str = "low"
+    monthly_budget_usd: float = 5.0
 
     @property
     def database_path(self) -> Path:

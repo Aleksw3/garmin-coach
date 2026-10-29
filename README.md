@@ -16,7 +16,32 @@ uv run coach rebuild               # rebuild the core tables from the stored raw
 uv run coach import-probe ../data/probe/<timestamp>   # load a probe dump without calling Garmin
 ```
 
-Settings come from environment variables or a `.env` file at the repo root: `DATA_DIR`, `GARMIN_EMAIL`, `GARMIN_PASSWORD`, `GARMIN_REQUEST_DELAY` (seconds between requests, default 2).
+Settings come from environment variables or a `.env` file at the repo root: `DATA_DIR`, `FRONTEND_DIR`, `GARMIN_EMAIL`, `GARMIN_PASSWORD`, `GARMIN_REQUEST_DELAY` (seconds between requests, default 2), `TRIMP_COEFFICIENT` (1.92 by default, the value Banister used for men; 1.67 is the value for women). TRIMP only fills in load for activities where Garmin has none.
+
+`uv run coach metrics` prints load, HRV and resting HR against their baselines, running weeks and strength volume. `uv run coach serve` runs the web app on http://127.0.0.1:8000 and syncs with Garmin at 5 minutes past every hour from 05:00 to 23:00 (`--no-schedule` turns that off).
+
+## Frontend
+
+The web UI in `frontend/` is React, Vite, Tailwind and ECharts. `npm run build` writes `frontend/dist`, which `coach serve` serves. For development, run `coach serve` and `npm run dev` side by side; Vite proxies `/api` to port 8000.
+
+```
+cd frontend
+npm install
+npm run dev       # http://localhost:5173
+npm run build
+npm run lint
+```
+
+## Docker
+
+`compose.yaml` builds the frontend and backend into one image and runs it with `data/` mounted, as your own user, on 127.0.0.1:8000.
+
+```
+docker compose up -d --build
+docker compose logs -f
+```
+
+Run only one of `coach serve`, a manual `coach backfill`, or the container against the same `data/` at a time, so two syncs don't talk to Garmin at once.
 
 Development checks:
 

@@ -1,0 +1,21 @@
+FROM node:22-bookworm-slim AS frontend
+WORKDIR /build
+COPY frontend/package.json frontend/package-lock.json ./
+RUN npm ci
+COPY frontend/ ./
+RUN npm run build
+
+FROM python:3.13-slim-bookworm
+COPY --from=ghcr.io/astral-sh/uv:0.11.26 /uv /usr/local/bin/uv
+ENV UV_COMPILE_BYTECODE=1 UV_LINK_MODE=copy UV_PYTHON_DOWNLOADS=never
+WORKDIR /app/backend
+COPY backend/pyproject.toml backend/uv.lock ./
+RUN uv sync --frozen --no-dev --no-install-project
+COPY backend/ ./
+RUN uv sync --frozen --no-dev --no-editable
+COPY --from=frontend /build/dist /app/frontend/dist
+
+ENV DATA_DIR=/data FRONTEND_DIR=/app/frontend/dist PATH=/app/backend/.venv/bin:$PATH
+EXPOSE 8000
+HEALTHCHECK --interval=60s --timeout=5s CMD python -c "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/health')"
+CMD ["coach", "serve", "--host", "0.0.0.0", "--port", "8000"]

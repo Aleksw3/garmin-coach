@@ -22,6 +22,7 @@ build-backend = "uv_build"
 
 [dependency-groups]
 dev = [
+    "httpx2>=2.16.0",
     "mypy>=2.4.1",
     "pytest>=9.2.0",
     "ruff>=0.17.3",
@@ -41,3 +42,7 @@ strict = true
 
 [tool.ruff.lint.per-file-ignores]
 "src/garmin_coach/migrations/versions/*" = ["E501", "UP", "RUF"]
+
+[[tool.mypy.overrides]]
+module = ["apscheduler.*"]
+ignore_missing_imports = true

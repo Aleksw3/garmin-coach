@@ -144,6 +144,21 @@ def command_metrics(args: argparse.Namespace) -> None:
         print(format_metrics(session, args.weeks, args.end, get_settings().trimp_coefficient))
 
 
+def command_serve(args: argparse.Namespace) -> None:
+    import uvicorn
+
+    from garmin_coach.api.app import create_app
+
+    sessions = open_database()
+    app = create_app(
+        sessions,
+        lambda: sync_service(sessions),
+        frontend_dir=get_settings().frontend_dir,
+        schedule_sync=not args.no_schedule,
+    )
+    uvicorn.run(app, host=args.host, port=args.port)
+
+
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(prog="coach")
     parser.add_argument("-v", "--verbose", action="store_true")
@@ -173,6 +188,12 @@ def build_parser() -> argparse.ArgumentParser:
     metrics.add_argument("--weeks", type=int, default=4)
     metrics.add_argument("--end", type=date.fromisoformat, default=date.today())
     metrics.set_defaults(run=command_metrics)
+
+    serve = commands.add_parser("serve", help="run the web app and the hourly sync")
+    serve.add_argument("--host", default="127.0.0.1")
+    serve.add_argument("--port", type=int, default=8000)
+    serve.add_argument("--no-schedule", action="store_true", help="don't sync on a schedule")
+    serve.set_defaults(run=command_serve)
 
     status = commands.add_parser("status", help="database and sync status")
     status.set_defaults(run=command_status)

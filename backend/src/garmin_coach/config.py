@@ -10,6 +10,7 @@ class Settings(BaseSettings):
     model_config = SettingsConfigDict(env_file=REPO_ROOT / ".env", extra="ignore")
 
     data_dir: Path = REPO_ROOT / "data"
+    frontend_dir: Path = REPO_ROOT / "frontend" / "dist"
     garmin_email: str | None = None
     garmin_password: str | None = None
     garmin_request_delay: float = 2.0

@@ -1,6 +1,7 @@
 from sqlalchemy.orm import Session
 
 from garmin_coach import raw_store
+from garmin_coach.metrics.commute import tag_commutes
 from garmin_coach.normalize.activities import normalize_activity
 from garmin_coach.normalize.daily import normalize_day
 
@@ -12,6 +13,7 @@ def rebuild_all(session: Session) -> tuple[int, int]:
     days = raw_store.daily_days(session)
     for day in days:
         normalize_day(session, day)
+    tag_commutes(session)
     return len(activity_ids), len(days)
 
 

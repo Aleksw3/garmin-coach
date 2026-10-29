@@ -14,6 +14,7 @@ from garmin_coach.config import get_settings
 from garmin_coach.db import create_db_engine, session_factory
 from garmin_coach.garmin.connect import GarminConnectSource
 from garmin_coach.garmin.source import GarminAuthError, GarminRateLimited
+from garmin_coach.metrics.summary import format_metrics
 from garmin_coach.migrate import upgrade_database
 from garmin_coach.models import Activity, DailyWellness, SyncRun
 from garmin_coach.normalize import rebuild_all
@@ -137,6 +138,12 @@ def command_status(args: argparse.Namespace) -> None:
             print(f"Activity types without a sport group: {', '.join(unmapped)}")
 
 
+def command_metrics(args: argparse.Namespace) -> None:
+    sessions = open_database()
+    with sessions() as session:
+        print(format_metrics(session, args.weeks, args.end, get_settings().trimp_coefficient))
+
+
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(prog="coach")
     parser.add_argument("-v", "--verbose", action="store_true")
@@ -161,6 +168,11 @@ def build_parser() -> argparse.ArgumentParser:
     weeks.add_argument("--weeks", type=int, default=4)
     weeks.add_argument("--end", type=date.fromisoformat, default=date.today())
     weeks.set_defaults(run=command_weeks)
+
+    metrics = commands.add_parser("metrics", help="load, recovery, running and strength")
+    metrics.add_argument("--weeks", type=int, default=4)
+    metrics.add_argument("--end", type=date.fromisoformat, default=date.today())
+    metrics.set_defaults(run=command_metrics)
 
     status = commands.add_parser("status", help="database and sync status")
     status.set_defaults(run=command_status)

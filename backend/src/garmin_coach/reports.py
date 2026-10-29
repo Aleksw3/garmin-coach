@@ -33,7 +33,7 @@ def weekly_totals(session: Session, first_week: date, last_week: date) -> list[W
     )
     totals: dict[tuple[date, str], WeekTotals] = {}
     for activity in activities:
-        group = groups.get(activity.type_key, OTHER)
+        group = "commute" if activity.is_commute else groups.get(activity.type_key, OTHER)
         key = (week_start(activity.local_date), group)
         row = totals.setdefault(key, WeekTotals(*key))
         row.activities += 1

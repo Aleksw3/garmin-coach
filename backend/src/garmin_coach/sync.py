@@ -18,6 +18,7 @@ from garmin_coach.garmin.source import (
     GarminRateLimited,
     GarminSource,
 )
+from garmin_coach.metrics.commute import tag_commutes
 from garmin_coach.models import SyncRun, SyncState
 from garmin_coach.normalize import normalize_activity, normalize_day
 from garmin_coach.normalize.sports import seed_sport_mapping, sport_groups
@@ -175,6 +176,8 @@ class SyncService:
                 refresh = refresh_from is not None and day >= refresh_from
                 self._fetch_day(session, day, refresh)
             self._fetch_body_composition(session, start, end)
+            tag_commutes(session)
+            session.commit()
 
     def sync_recent(self) -> SyncResult:
         today = self.today()

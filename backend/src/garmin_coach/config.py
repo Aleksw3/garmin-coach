@@ -15,6 +15,7 @@ class Settings(BaseSettings):
     garmin_request_delay: float = 2.0
     recent_sync_days: int = 14
     daily_refresh_days: int = 3
+    trimp_coefficient: float = 1.92
 
     @property
     def database_path(self) -> Path:

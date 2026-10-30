@@ -6,7 +6,8 @@ from sqlalchemy.orm import Session, sessionmaker
 
 from garmin_coach import raw_store
 from garmin_coach.api.app import create_app
-from garmin_coach.coach.agent import Coach, CoachSettings
+from garmin_coach.coach.agent import Coach, coach_settings
+from garmin_coach.config import Settings
 from garmin_coach.normalize import rebuild_all
 from garmin_coach.sync import SyncService
 from tests.garmin_data import FakeGarmin, activity_summary, daily
@@ -34,7 +35,7 @@ def client(sessions: sessionmaker[Session]) -> TestClient:
     def make_service() -> SyncService:
         return SyncService(FakeGarmin([]), sessions, request_delay=0, sleep=lambda _: None)
 
-    coach = Coach(sessions, None, CoachSettings("claude-sonnet-5-5", "low", 5.0, 1.92))
+    coach = Coach(sessions, None, coach_settings(Settings.model_construct()))
     return TestClient(create_app(sessions, make_service, coach, schedule_sync=False))
 
 

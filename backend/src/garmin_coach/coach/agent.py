@@ -14,12 +14,12 @@ from sqlalchemy.orm import Session, sessionmaker
 from garmin_coach.coach.prompt import SYSTEM_PROMPT, context_block
 from garmin_coach.coach.tools import ToolContext, run_tool, tool_definitions
 from garmin_coach.coach.usage import month_spend, record_usage
+from garmin_coach.config import Settings
 from garmin_coach.models import Conversation, Message
 
 log = logging.getLogger(__name__)
 
 THINKING_BINDING_BETA = "thinking-binding-controls-2026-08-01"
-MAX_TOKENS = 16000
 MAX_ROUNDS = 10
 MAX_PARSE_RETRIES = 2
 TITLE_LENGTH = 60
@@ -36,11 +36,35 @@ def anthropic_stream_factory(api_key: str) -> StreamFactory:
 
 
 @dataclass(frozen=True)
-class CoachSettings:
+class ModelChoice:
     model: str
     effort: str
+    max_tokens: int = 16000
+
+
+@dataclass(frozen=True)
+class CoachSettings:
+    models: dict[str, ModelChoice]
     monthly_budget_usd: float
     trimp_coefficient: float
+
+    def choice(self, purpose: str) -> ModelChoice:
+        return self.models.get(purpose, self.models["chat"])
+
+
+def coach_settings(settings: Settings) -> CoachSettings:
+    background = ModelChoice(settings.background_model, "low", 8000)
+    return CoachSettings(
+        models={
+            "chat": ModelChoice(settings.chat_model, settings.chat_effort),
+            "plan": ModelChoice(settings.plan_model, settings.plan_effort, 32000),
+            "review": ModelChoice(settings.chat_model, "medium"),
+            "checkin": background,
+            "feedback": background,
+        },
+        monthly_budget_usd=settings.monthly_budget_usd,
+        trimp_coefficient=settings.trimp_coefficient,
+    )
 
 
 def title_from(text: str) -> str:
@@ -68,7 +92,7 @@ class Coach:
         self.now = now
         self._lock = threading.Lock()
 
-    def reply(self, conversation_id: int, text: str) -> Iterator[Event]:
+    def reply(self, conversation_id: int, text: str, purpose: str = "chat") -> Iterator[Event]:
         if self.stream_factory is None:
             yield error("No Anthropic API key. Set ANTHROPIC_API_KEY in .env and restart.")
             return
@@ -76,7 +100,7 @@ class Coach:
             yield error("The coach is already answering. Wait for that reply to finish.")
             return
         try:
-            yield from self._reply(conversation_id, text)
+            yield from self._reply(conversation_id, text, purpose)
         finally:
             self._lock.release()
 
@@ -133,11 +157,13 @@ class Coach:
             session.commit()
         return [*history, {"role": "user", "content": content}]
 
-    def _stream(self, history: list[dict[str, Any]]) -> Generator[Event, None, Any]:
+    def _stream(
+        self, history: list[dict[str, Any]], choice: ModelChoice
+    ) -> Generator[Event, None, Any]:
         assert self.stream_factory is not None
         with self.stream_factory(
-            model=self.settings.model,
-            max_tokens=MAX_TOKENS,
+            model=choice.model,
+            max_tokens=choice.max_tokens,
             system=SYSTEM,
             tools=TOOL_DEFINITIONS,
             messages=history,
@@ -145,7 +171,7 @@ class Coach:
                 "type": "adaptive",
                 "block_binding": {"prefix_mismatch_behavior": "drop_block"},
             },
-            output_config={"effort": self.settings.effort},
+            output_config={"effort": choice.effort},
             cache_control={"type": "ephemeral"},
             betas=[THINKING_BINDING_BETA],
         ) as stream:
@@ -154,15 +180,18 @@ class Coach:
                     yield {"type": "text", "text": event.text}
             return stream.get_final_message()
 
-    def _call_model(self, history: list[dict[str, Any]]) -> Generator[Event, None, Any]:
+    def _call_model(
+        self, history: list[dict[str, Any]], choice: ModelChoice
+    ) -> Generator[Event, None, Any]:
         for attempt in range(MAX_PARSE_RETRIES + 1):
             try:
-                return (yield from self._stream(history))
+                return (yield from self._stream(history, choice))
             except ValueError:
                 log.warning("Unparseable tool input, attempt %d", attempt + 1)
         return None
 
-    def _reply(self, conversation_id: int, text: str) -> Iterator[Event]:
+    def _reply(self, conversation_id: int, text: str, purpose: str) -> Iterator[Event]:
+        choice = self.settings.choice(purpose)
         started = self._start_turn(conversation_id, text)
         if isinstance(started, str):
             yield error(started)
@@ -171,7 +200,7 @@ class Coach:
         turn_cost = 0.0
         for _ in range(MAX_ROUNDS):
             try:
-                message = yield from self._call_model(history)
+                message = yield from self._call_model(history, choice)
             except anthropic.APIError as api_error:
                 log.exception("Claude API call failed")
                 yield error(f"The Claude API call failed: {api_error}")
@@ -184,9 +213,7 @@ class Coach:
                 block.model_dump(mode="json", exclude_none=True) for block in message.content
             ]
             with self.sessions() as session:
-                usage = record_usage(
-                    session, self.settings.model, "chat", conversation_id, message.usage
-                )
+                usage = record_usage(session, choice.model, purpose, conversation_id, message.usage)
                 self._save(session, conversation_id, "assistant", content)
                 session.commit()
             turn_cost += usage.cost_usd
@@ -200,7 +227,9 @@ class Coach:
                 break
             results = []
             with self.sessions() as session:
-                context = ToolContext(session, self.now().date(), self.settings.trimp_coefficient)
+                context = ToolContext(
+                    session, self.now(), self.settings.trimp_coefficient, conversation_id
+                )
                 for block in tool_uses:
                     yield {
                         "type": "tool_call",

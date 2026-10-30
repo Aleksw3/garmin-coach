@@ -1,7 +1,7 @@
 import copy
 import json
 from collections.abc import Iterator
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from datetime import date, datetime, timedelta
 from types import SimpleNamespace
 from typing import Any
@@ -14,16 +14,17 @@ from sqlalchemy.orm import Session, sessionmaker
 from garmin_coach import raw_store
 from garmin_coach.api.app import create_app
 from garmin_coach.api.coach_routes import chat_items
-from garmin_coach.coach.agent import Coach, CoachSettings
+from garmin_coach.coach.agent import Coach, coach_settings
 from garmin_coach.coach.tools import ToolContext, run_tool, tool_definitions
 from garmin_coach.coach.usage import cost_usd
+from garmin_coach.config import Settings
 from garmin_coach.models import ApiUsage, CoachNote, Conversation, Goal, Message
 from garmin_coach.normalize import rebuild_all
 from garmin_coach.sync import SyncService
 from tests.garmin_data import FakeGarmin, activity_summary, daily
 
 NOW = datetime(2026, 10, 28, 12, 0)
-SETTINGS = CoachSettings("claude-sonnet-5-5", "low", 5.0, 1.92)
+SETTINGS = coach_settings(Settings.model_construct())
 
 
 @dataclass
@@ -115,7 +116,7 @@ def seeded(sessions: sessionmaker[Session]) -> sessionmaker[Session]:
 
 
 def make_coach(sessions: sessionmaker[Session], claude: FakeClaude, budget: float = 5.0) -> Coach:
-    settings = CoachSettings(SETTINGS.model, SETTINGS.effort, budget, SETTINGS.trimp_coefficient)
+    settings = replace(SETTINGS, monthly_budget_usd=budget)
     return Coach(sessions, claude, settings, now=lambda: NOW)
 
 
@@ -224,13 +225,13 @@ def test_tool_definitions_are_sorted_and_clean() -> None:
     names = [d["name"] for d in definitions]
 
     assert names == sorted(names)
-    assert "title" not in json.dumps([d["input_schema"] for d in definitions])
+    assert '"title": "' not in json.dumps([d["input_schema"] for d in definitions])
     assert all(d["input_schema"]["additionalProperties"] is False for d in definitions)
 
 
 def test_tools_read_the_database(seeded: sessionmaker[Session]) -> None:
     with seeded() as session:
-        context = ToolContext(session, NOW.date(), 1.92)
+        context = ToolContext(session, NOW, 1.92)
 
         activities, ok = run_tool(
             context, "list_activities", {"start": "2026-10-01", "end": "2026-10-28"}
@@ -299,3 +300,88 @@ def test_chat_api_streams_events(seeded: sessionmaker[Session]) -> None:
     )
     assert client.put("/api/profile", json={"max_hr": 190}).json()["max_hr"] == 190
     assert client.delete(f"/api/conversations/{created['id']}").status_code == 204
+
+
+def session_spec(day: str, title: str = "Easy run", **extra: Any) -> dict[str, Any]:
+    return {"day": day, "sport": "run", "kind": "easy", "title": title, "duration_min": 45, **extra}
+
+
+def test_plan_proposals_change_the_plan_only_when_accepted(seeded: sessionmaker[Session]) -> None:
+    def make_service() -> SyncService:
+        return SyncService(FakeGarmin([]), seeded, request_delay=0, sleep=lambda _: None)
+
+    client = TestClient(create_app(seeded, make_service, make_coach(seeded, FakeClaude([]))))
+    with seeded() as session:
+        context = ToolContext(session, NOW, 1.92, conversation_id=1)
+        output, ok = run_tool(
+            context,
+            "propose_plan",
+            {
+                "summary": "Base block",
+                "reason": "Volume dropped",
+                "plan": {
+                    "title": "Base",
+                    "goal_id": 1,
+                    "sessions": [
+                        session_spec("2026-11-02"),
+                        session_spec("2026-11-04", "Hills", kind="hills", elevation_gain_m=500),
+                        {"day": "2026-11-05", "sport": "rest", "kind": "rest", "title": "Rest"},
+                    ],
+                },
+            },
+        )
+        session.commit()
+    assert ok, output
+    calendar = {"start": "2026-11-01", "end": "2026-11-08"}
+    assert client.get("/api/plan", params=calendar).json()["sessions"] == []
+
+    proposals = client.get("/api/proposals").json()
+    assert [p["summary"] for p in proposals] == ["Base block"]
+    assert client.post(f"/api/proposals/{proposals[0]['id']}/accept").json()["status"] == "accepted"
+    sessions = client.get("/api/plan", params=calendar).json()["sessions"]
+    assert [s["title"] for s in sessions] == ["Easy run", "Hills", "Rest"]
+    assert client.post(f"/api/proposals/{proposals[0]['id']}/accept").status_code == 409
+
+    hills, rest = sessions[1]["id"], sessions[2]["id"]
+    with seeded() as session:
+        context = ToolContext(session, NOW, 1.92, conversation_id=1)
+        plan_text, _ = run_tool(context, "get_plan", {"start": "2026-11-01", "end": "2026-11-08"})
+        assert (
+            f"session {hills} | 2026-11-04 Wed | run hills | Hills | 45 min, 500 m up" in plan_text
+        )
+        output, ok = run_tool(
+            context,
+            "propose_changes",
+            {
+                "summary": "Move hills",
+                "reason": "Low HRV",
+                "changes": [
+                    {
+                        "op": "update",
+                        "session_id": hills,
+                        "session": session_spec("2026-11-06", "Hills"),
+                    },
+                    {"op": "remove", "session_id": rest},
+                    {"op": "add", "session": session_spec("2026-11-04", "Recovery jog")},
+                ],
+            },
+        )
+        assert ok, output
+        missing, ok = run_tool(
+            context,
+            "propose_changes",
+            {"summary": "x", "reason": "x", "changes": [{"op": "remove", "session_id": 999}]},
+        )
+        assert not ok and "999" in missing
+        session.commit()
+
+    proposal = client.get("/api/proposals").json()[0]
+    assert proposal["changes"][0]["current"]["day"] == "2026-11-04"
+    client.post(f"/api/proposals/{proposal['id']}/accept")
+    sessions = client.get("/api/plan", params=calendar).json()["sessions"]
+    assert [(s["day"], s["title"]) for s in sessions] == [
+        ("2026-11-02", "Easy run"),
+        ("2026-11-04", "Recovery jog"),
+        ("2026-11-06", "Hills"),
+    ]
+    assert client.patch(f"/api/sessions/{hills}", json={"skipped": True}).json()["skipped"]

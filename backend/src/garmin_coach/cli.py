@@ -148,7 +148,7 @@ def command_serve(args: argparse.Namespace) -> None:
     import uvicorn
 
     from garmin_coach.api.app import create_app
-    from garmin_coach.coach.agent import Coach, CoachSettings, anthropic_stream_factory
+    from garmin_coach.coach.agent import Coach, anthropic_stream_factory, coach_settings
 
     settings = get_settings()
     sessions = open_database()
@@ -160,12 +160,7 @@ def command_serve(args: argparse.Namespace) -> None:
             anthropic_stream_factory(settings.anthropic_api_key)
             if settings.anthropic_api_key
             else None,
-            CoachSettings(
-                model=settings.chat_model,
-                effort=settings.chat_effort,
-                monthly_budget_usd=settings.monthly_budget_usd,
-                trimp_coefficient=settings.trimp_coefficient,
-            ),
+            coach_settings(settings),
         ),
         frontend_dir=settings.frontend_dir,
         schedule_sync=not args.no_schedule,

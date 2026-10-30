@@ -103,7 +103,9 @@ export type SyncStatus = { running: boolean; last_sync: string | null; runs: Syn
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
   const response = await fetch(path, init)
   if (!response.ok) {
-    throw new Error(`${init?.method ?? 'GET'} ${path} failed with ${response.status}`)
+    const body = (await response.json().catch(() => null)) as { detail?: unknown } | null
+    const detail = typeof body?.detail === 'string' ? `: ${body.detail}` : ''
+    throw new Error(`${init?.method ?? 'GET'} ${path} failed with ${response.status}${detail}`)
   }
   return response.json() as Promise<T>
 }
@@ -206,8 +208,9 @@ export async function streamMessage(
   conversationId: number,
   text: string,
   onEvent: (event: ChatEvent) => void,
+  purpose: 'chat' | 'plan' = 'chat',
 ): Promise<void> {
-  const response = await fetch(`/api/conversations/${conversationId}/messages`, json('POST', { text }))
+  const response = await fetch(`/api/conversations/${conversationId}/messages`, json('POST', { text, purpose }))
   if (!response.ok || !response.body) throw new Error(`Sending failed with ${response.status}`)
   const reader = response.body.pipeThrough(new TextDecoderStream()).getReader()
   let buffer = ''
@@ -222,3 +225,61 @@ export async function streamMessage(
     }
   }
 }
+
+export type SessionSpec = {
+  day: string
+  sport: 'run' | 'vertical' | 'ski' | 'cycling' | 'strength' | 'other' | 'rest'
+  kind: string
+  title: string
+  duration_min: number | null
+  distance_km: number | null
+  elevation_gain_m: number | null
+  intensity: string | null
+  description: string | null
+}
+
+export type PlannedSession = SessionSpec & { id: number; plan_id: number; skipped: boolean }
+
+export type PlanInfo = {
+  id: number
+  goal_id: number | null
+  title: string
+  description: string | null
+  start_date: string
+  end_date: string
+}
+
+export type Calendar = {
+  start: string
+  end: string
+  plans: PlanInfo[]
+  sessions: PlannedSession[]
+  activities: Activity[]
+}
+
+export type ProposalChange = {
+  op: 'add' | 'update' | 'remove'
+  session_id: number | null
+  session: SessionSpec | null
+  current: PlannedSession | null
+}
+
+export type Proposal = {
+  id: number
+  created_at: string
+  conversation_id: number | null
+  summary: string
+  reason: string
+  status: string
+  plan: { title: string; goal_id: number | null; description: string | null; sessions: SessionSpec[] } | null
+  changes: ProposalChange[]
+}
+
+export const fetchCalendar = (start: string, end: string) =>
+  request<Calendar>(`/api/plan?start=${start}&end=${end}`)
+export const fetchProposals = () => request<Proposal[]>('/api/proposals')
+export const acceptProposal = (id: number) => request<Proposal>(`/api/proposals/${id}/accept`, { method: 'POST' })
+export const rejectProposal = (id: number) => request<Proposal>(`/api/proposals/${id}/reject`, { method: 'POST' })
+export const setSkipped = (id: number, skipped: boolean) =>
+  request<PlannedSession>(`/api/sessions/${id}`, json('PATCH', { skipped }))
+export const deleteSession = (id: number) => send(`/api/sessions/${id}`, { method: 'DELETE' })

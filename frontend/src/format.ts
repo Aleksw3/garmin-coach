@@ -40,3 +40,21 @@ export function sentence(value: string | null | undefined): string {
   const words = value.replaceAll('_', ' ').toLowerCase()
   return words.charAt(0).toUpperCase() + words.slice(1)
 }
+
+export function localToday(): string {
+  return new Date().toLocaleDateString('sv-SE')
+}
+
+export function mondayOf(isoDate: string): string {
+  const weekday = new Date(`${isoDate}T00:00:00Z`).getUTCDay()
+  return addDays(isoDate, -((weekday + 6) % 7))
+}
+
+export function dayLabel(isoDate: string): string {
+  return new Date(`${isoDate}T00:00:00Z`).toLocaleDateString('en-GB', {
+    weekday: 'short',
+    day: 'numeric',
+    month: 'short',
+    timeZone: 'UTC',
+  })
+}

@@ -46,6 +46,7 @@ class ConversationDetailOut(ConversationOut):
 
 class NewMessage(BaseModel):
     text: str = Field(min_length=1, max_length=8000)
+    purpose: Literal["chat", "plan"] = "chat"
 
 
 class ProfileIn(BaseModel):
@@ -110,6 +111,8 @@ class UsageOut(BaseModel):
     budget_usd: float
     calls_this_month: int
     chat_model: str
+    plan_model: str
+    background_model: str
     recent: list[UsageRowOut]
 
 
@@ -210,7 +213,7 @@ def send_message(
     coach = get_coach(request)
 
     def events() -> Iterator[str]:
-        for event in coach.reply(conversation_id, body.text):
+        for event in coach.reply(conversation_id, body.text, body.purpose):
             yield f"data: {json.dumps(event, ensure_ascii=False)}\n\n"
 
     return StreamingResponse(
@@ -300,6 +303,8 @@ def get_usage(session: SessionDep, request: Request) -> UsageOut:
         month_cost_usd=month_spend(session, today),
         budget_usd=settings.monthly_budget_usd,
         calls_this_month=calls or 0,
-        chat_model=settings.model,
+        chat_model=settings.choice("chat").model,
+        plan_model=settings.choice("plan").model,
+        background_model=settings.choice("checkin").model,
         recent=[UsageRowOut.model_validate(row) for row in recent],
     )

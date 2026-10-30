@@ -9,6 +9,16 @@ from pydantic import BaseModel, ConfigDict, Field, ValidationError, model_valida
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
+from garmin_coach.coach.plan import (
+    Change,
+    NewPlan,
+    PlanError,
+    ProposalBody,
+    create_proposal,
+    pending_proposals,
+    session_targets,
+    sessions_between,
+)
 from garmin_coach.metrics.load import training_load
 from garmin_coach.metrics.recovery import hrv_baseline, resting_hr_baseline
 from garmin_coach.metrics.running import climb_per_km, terrain
@@ -22,6 +32,7 @@ from garmin_coach.models import (
     CoachNote,
     DailyWellness,
     Goal,
+    Plan,
 )
 from garmin_coach.normalize.sports import OTHER, sport_groups
 from garmin_coach.reports import format_weekly_totals, week_start, weekly_totals
@@ -40,8 +51,13 @@ TERRAIN_GROUPS = ("run", "vertical")
 @dataclass
 class ToolContext:
     session: Session
-    today: date
+    now: datetime
     trimp_coefficient: float
+    conversation_id: int | None = None
+
+    @property
+    def today(self) -> date:
+        return self.now.date()
 
 
 class ToolInput(BaseModel):
@@ -87,6 +103,23 @@ class NoteQuery(ToolInput):
 
 class NewNote(ToolInput):
     text: str = Field(min_length=1, max_length=1000)
+
+
+class ProposalText(ToolInput):
+    summary: str = Field(
+        min_length=1, max_length=300, description="One line the athlete sees on the Plan page"
+    )
+    reason: str = Field(
+        min_length=1, max_length=3000, description="Why, with the numbers it is based on"
+    )
+
+
+class PlanProposalInput(ProposalText):
+    plan: NewPlan
+
+
+class ChangesInput(ProposalText):
+    changes: list[Change] = Field(min_length=1, max_length=60)
 
 
 def hours_minutes(seconds: float | None) -> str:
@@ -360,6 +393,73 @@ def get_notes(ctx: ToolContext, args: NoteQuery) -> str:
     return "\n".join(f"{n.created_at:%Y-%m-%d}: {n.text}" for n in notes) or "No notes"
 
 
+def plan_lines(ctx: ToolContext, args: DateRange) -> list[str]:
+    plans = ctx.session.scalars(
+        select(Plan)
+        .where(Plan.start_date <= args.end, Plan.end_date >= args.start)
+        .order_by(Plan.start_date)
+    ).all()
+    lines = [
+        f"Plan {plan.id}: {plan.title} ({plan.start_date} to {plan.end_date})"
+        + (f". {plan.description}" if plan.description else "")
+        for plan in plans
+    ]
+    rows = sessions_between(ctx.session, args.start, args.end)
+    lines.append(f"{len(rows)} planned sessions from {args.start} to {args.end}")
+    for row in rows:
+        lines.append(
+            joined(
+                [
+                    f"session {row.id}",
+                    f"{row.day} {row.day:%a}",
+                    f"{row.sport} {row.kind}",
+                    row.title,
+                    session_targets(row),
+                    "skipped" if row.skipped else None,
+                    row.description,
+                ]
+            )
+        )
+    for proposal in pending_proposals(ctx.session):
+        lines.append(f"Pending proposal {proposal.id}, not accepted yet: {proposal.summary}")
+    return lines
+
+
+def get_plan(ctx: ToolContext, args: DateRange) -> str:
+    return "\n".join(plan_lines(ctx, args))
+
+
+def propose_plan(ctx: ToolContext, args: PlanProposalInput) -> str:
+    proposal = create_proposal(
+        ctx.session,
+        args.summary,
+        args.reason,
+        ProposalBody(plan=args.plan),
+        ctx.conversation_id,
+        ctx.now,
+    )
+    return (
+        f"Created proposal {proposal.id} with {len(args.plan.sessions)} sessions. It replaces "
+        f"planned sessions from {min(s.day for s in args.plan.sessions)} on once the athlete "
+        "accepts it on the Plan page. Nothing changes before that."
+    )
+
+
+def propose_changes(ctx: ToolContext, args: ChangesInput) -> str:
+    proposal = create_proposal(
+        ctx.session,
+        args.summary,
+        args.reason,
+        ProposalBody(changes=args.changes),
+        ctx.conversation_id,
+        ctx.now,
+    )
+    return (
+        f"Created proposal {proposal.id} with {len(args.changes)} changes. The athlete accepts "
+        "or rejects it on the Plan page. Nothing changes before that."
+    )
+
+
 def save_note(ctx: ToolContext, args: NewNote) -> str:
     note = CoachNote(created_at=datetime.now(), text=args.text)
     ctx.session.add(note)
@@ -385,6 +485,13 @@ TOOLS = (
     ),
     Tool(
         "get_goals", "The athlete's goals, including race details and status.", ToolInput, get_goals
+    ),
+    Tool(
+        "get_plan",
+        "Planned sessions with their ids and targets, the plans they belong to, and proposals "
+        "that are still waiting for the athlete.",
+        DateRange,
+        get_plan,
     ),
     Tool(
         "get_load",
@@ -441,6 +548,20 @@ TOOLS = (
         list_activities,
     ),
     Tool(
+        "propose_changes",
+        "Propose adding, updating or removing single planned sessions, for example to move a "
+        "long run or ease a week after poor recovery. Get session ids from get_plan first.",
+        ChangesInput,
+        propose_changes,
+    ),
+    Tool(
+        "propose_plan",
+        "Propose a training block of up to 120 days. When accepted it replaces every planned "
+        "session from its first day on. Include rest days as sessions with sport rest.",
+        PlanProposalInput,
+        propose_plan,
+    ),
+    Tool(
         "save_note",
         "Save a short fact to remember in later conversations, for example an injury, a "
         "preference or a schedule change. Write it so it makes sense on its own.",
@@ -467,12 +588,30 @@ def strip_titles(node: Any) -> Any:
     return node
 
 
+def inline_refs(node: Any, definitions: dict[str, Any]) -> Any:
+    if isinstance(node, dict):
+        if "$ref" in node:
+            return inline_refs(definitions[node["$ref"].removeprefix("#/$defs/")], definitions)
+        return {
+            key: inline_refs(child, definitions) for key, child in node.items() if key != "$defs"
+        }
+    if isinstance(node, list):
+        return [inline_refs(item, definitions) for item in node]
+    return node
+
+
+def input_schema(model: type[ToolInput]) -> dict[str, Any]:
+    schema = model.model_json_schema()
+    inlined: dict[str, Any] = strip_titles(inline_refs(schema, schema.get("$defs", {})))
+    return inlined
+
+
 def tool_definitions() -> list[dict[str, Any]]:
     return [
         {
             "name": tool.name,
             "description": tool.description,
-            "input_schema": strip_titles(tool.input_model.model_json_schema()),
+            "input_schema": input_schema(tool.input_model),
             "eager_input_streaming": True,
         }
         for tool in sorted(TOOLS, key=lambda t: t.name)
@@ -489,7 +628,7 @@ def run_tool(ctx: ToolContext, name: str, raw_input: Any) -> tuple[str, bool]:
         return f"Invalid input: {error}", False
     try:
         return tool.handler(ctx, args), True
-    except LookupError as error:
+    except (LookupError, PlanError) as error:
         return str(error), False
     except Exception:
         log.exception("Tool %s failed", name)

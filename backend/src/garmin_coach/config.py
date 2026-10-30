@@ -20,6 +20,9 @@ class Settings(BaseSettings):
     anthropic_api_key: str | None = None
     chat_model: str = "claude-sonnet-5-5"
     chat_effort: str = "low"
+    plan_model: str = "claude-opus-5-5"
+    plan_effort: str = "high"
+    background_model: str = "claude-haiku-5-5"
     monthly_budget_usd: float = 5.0
 
     @property

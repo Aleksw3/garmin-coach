@@ -5,12 +5,14 @@ import { TodayPage } from './pages/Today'
 
 const TrendsPage = lazy(() => import('./pages/Trends').then((m) => ({ default: m.TrendsPage })))
 const ChatPage = lazy(() => import('./pages/Chat').then((m) => ({ default: m.ChatPage })))
+const PlanPage = lazy(() => import('./pages/Plan').then((m) => ({ default: m.PlanPage })))
 const GoalsPage = lazy(() => import('./pages/Goals').then((m) => ({ default: m.GoalsPage })))
 const SettingsPage = lazy(() => import('./pages/Settings').then((m) => ({ default: m.SettingsPage })))
 
 const PAGES = [
   { hash: '#today', label: 'Today', element: <TodayPage /> },
   { hash: '#chat', label: 'Chat', element: <ChatPage /> },
+  { hash: '#plan', label: 'Plan', element: <PlanPage /> },
   { hash: '#trends', label: 'Trends', element: <TrendsPage /> },
   { hash: '#goals', label: 'Goals', element: <GoalsPage /> },
   { hash: '#settings', label: 'Settings', element: <SettingsPage /> },

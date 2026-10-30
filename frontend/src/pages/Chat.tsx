@@ -1,32 +1,14 @@
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { useEffect, useRef, useState, type FormEvent, type KeyboardEvent } from 'react'
-import Markdown from 'react-markdown'
-import remarkGfm from 'remark-gfm'
 import {
   createConversation,
   deleteConversation,
   fetchConversation,
   fetchConversations,
   streamMessage,
-  type ChatEvent,
-  type ChatItem,
-  type ToolCall,
 } from '../api'
-import { shortDate } from '../format'
-
-const TOOL_LABELS: Record<string, string> = {
-  get_activity: 'Activity details',
-  get_goals: 'Goals',
-  get_load: 'Training load',
-  get_notes: 'Notes',
-  get_profile: 'Profile',
-  get_running_weeks: 'Running weeks',
-  get_strength: 'Strength',
-  get_weekly_summary: 'Weekly summary',
-  get_wellness: 'Sleep and recovery',
-  list_activities: 'Activities',
-  save_note: 'Saved a note',
-}
+import { applyEvent, type Pending } from '../chatEvents'
+import { Bubble } from '../components/ChatParts'
 
 const STARTERS = [
   'How did my last 4 weeks of running compare to what my race needs?',
@@ -34,90 +16,7 @@ const STARTERS = [
   'What should my next week of training look like?',
 ]
 
-type Pending = {
-  user: string
-  coach: string
-  tools: ToolCall[]
-  error: string | null
-}
-
 type Cost = { turn: number; month: number; budget: number }
-
-function toolText(tool: ToolCall): string {
-  const label = TOOL_LABELS[tool.name] ?? tool.name
-  const { start, end } = tool.input
-  if (typeof start === 'string' && typeof end === 'string') {
-    return `${label}, ${shortDate(start)} to ${shortDate(end)}`
-  }
-  if (typeof tool.input.activity_id === 'number') return `${label} ${tool.input.activity_id}`
-  return label
-}
-
-function ToolChips({ tools }: { tools: ToolCall[] }) {
-  if (tools.length === 0) return null
-  return (
-    <ul className="mb-2 flex flex-wrap gap-1.5" aria-label="Data the coach looked up">
-      {tools.map((tool) => (
-        <li
-          key={tool.id}
-          className="rounded-md border border-line px-2 py-0.5 text-xs text-muted"
-          title={JSON.stringify(tool.input)}
-        >
-          {tool.ok === false ? <span className="text-warning">▲ </span> : tool.ok ? '✓ ' : '… '}
-          {toolText(tool)}
-        </li>
-      ))}
-    </ul>
-  )
-}
-
-function CoachText({ text }: { text: string }) {
-  return (
-    <div className="coach-text text-sm leading-relaxed text-primary">
-      <Markdown remarkPlugins={[remarkGfm]}>{text}</Markdown>
-    </div>
-  )
-}
-
-function Bubble({ item }: { item: Pick<ChatItem, 'role' | 'text' | 'tools'> }) {
-  if (item.role === 'user') {
-    return (
-      <div className="flex justify-end">
-        <p className="max-w-[85%] rounded-xl bg-raised px-3 py-2 text-sm whitespace-pre-wrap text-primary">
-          {item.text}
-        </p>
-      </div>
-    )
-  }
-  return (
-    <div className="min-w-0">
-      <ToolChips tools={item.tools} />
-      {item.text && <CoachText text={item.text} />}
-    </div>
-  )
-}
-
-function applyEvent(pending: Pending, event: ChatEvent): Pending {
-  switch (event.type) {
-    case 'text':
-      return { ...pending, coach: pending.coach + event.text }
-    case 'tool_call':
-      return {
-        ...pending,
-        coach: pending.coach ? `${pending.coach}\n\n` : '',
-        tools: [...pending.tools, { id: event.id, name: event.name, input: event.input, ok: null }],
-      }
-    case 'tool_result':
-      return {
-        ...pending,
-        tools: pending.tools.map((tool) => (tool.id === event.id ? { ...tool, ok: event.ok } : tool)),
-      }
-    case 'error':
-      return { ...pending, error: event.message }
-    default:
-      return pending
-  }
-}
 
 function Composer({ disabled, onSend }: { disabled: boolean; onSend: (text: string) => void }) {
   const [text, setText] = useState('')

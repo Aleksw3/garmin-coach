@@ -115,11 +115,11 @@ export const fetchTrends = (weeks: number) => request<Trends>(`/api/trends?weeks
 export const fetchSyncStatus = () => request<SyncStatus>('/api/sync')
 export const startSync = () => request<SyncStatus>('/api/sync', { method: 'POST' })
 
-export type Conversation = { id: number; title: string | null; updated_at: string }
+export type Conversation = { id: number; kind: 'chat' | 'coach'; title: string | null; updated_at: string }
 
 export type ToolCall = { id: string; name: string; input: Record<string, unknown>; ok: boolean | null }
 
-export type ChatItem = { role: 'user' | 'coach'; text: string; tools: ToolCall[]; created_at: string }
+export type ChatItem = { role: 'user' | 'coach' | 'event'; text: string; tools: ToolCall[]; created_at: string }
 
 export type ConversationDetail = Conversation & { items: ChatItem[] }
 
@@ -176,6 +176,8 @@ export type Usage = {
   budget_usd: number
   calls_this_month: number
   chat_model: string
+  plan_model: string
+  background_model: string
   recent: UsageRow[]
 }
 
@@ -344,3 +346,23 @@ export const editSet = (activityId: number, setIndex: number, values: SetValues 
   request<StrengthSetRow[]>(`/api/activities/${activityId}/sets/${setIndex}`, json('PUT', values))
 export const restoreSet = (activityId: number, setIndex: number) =>
   send(`/api/activities/${activityId}/sets/${setIndex}/edit`, { method: 'DELETE' })
+
+export type LatestCoachMessage = {
+  conversation_id: number
+  title: string | null
+  label: string | null
+  text: string
+  created_at: string
+}
+
+export type Notifications = {
+  enabled: boolean
+  url: string
+  topic: string | null
+  checkin_time: string | null
+  review: string | null
+}
+
+export const fetchLatestCoach = () => request<LatestCoachMessage | null>('/api/coach/latest')
+export const fetchNotifications = () => request<Notifications>('/api/notifications')
+export const sendTestNotification = () => request<{ sent: boolean }>('/api/notifications/test', { method: 'POST' })

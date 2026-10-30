@@ -1,8 +1,9 @@
 import { useQuery } from '@tanstack/react-query'
-import { fetchToday, type Activity, type GroupTotals } from '../api'
+import { fetchCalendar, fetchLatestCoach, fetchProposals, fetchToday, type Activity, type GroupTotals } from '../api'
 import { Card } from '../components/Card'
+import { CoachText } from '../components/ChatParts'
 import { BaselineBadge, StatTile } from '../components/StatTile'
-import { duration, hours, number, sentence, weekday } from '../format'
+import { duration, hours, localToday, number, sentence, weekday } from '../format'
 import { SPORT_GROUPS, displayGroup, groupColor, groupLabel, useTheme } from '../theme'
 
 function WeekSummary({ week }: { week: GroupTotals[] }) {
@@ -81,6 +82,58 @@ function ActivityRow({ activity }: { activity: Activity }) {
   )
 }
 
+function TodayPlan() {
+  const today = localToday()
+  const calendar = useQuery({ queryKey: ['calendar', today, today], queryFn: () => fetchCalendar(today, today) })
+  const proposals = useQuery({ queryKey: ['proposals'], queryFn: fetchProposals })
+  const sessions = calendar.data?.sessions ?? []
+  const waiting = proposals.data?.length ?? 0
+  return (
+    <Card title="Today's plan">
+      {sessions.length === 0 && <p className="text-sm text-muted">Nothing planned today.</p>}
+      <ul className="space-y-2">
+        {sessions.map((session) => (
+          <li key={session.id} className="text-sm">
+            <span className="font-semibold text-primary">{session.title}</span>
+            <span className="text-secondary">
+              {[
+                session.duration_min ? `${number(session.duration_min)} min` : null,
+                session.elevation_gain_m ? `${number(session.elevation_gain_m)} m up` : null,
+                session.intensity,
+              ]
+                .filter(Boolean)
+                .map((part) => `, ${part}`)
+                .join('')}
+            </span>
+            {session.match && <span className="ml-2 text-xs text-secondary">✓ Done</span>}
+            {session.description && <p className="mt-0.5 text-xs whitespace-pre-wrap text-muted">{session.description}</p>}
+          </li>
+        ))}
+      </ul>
+      {waiting > 0 && (
+        <a href="#plan" className="mt-3 block text-xs text-accent">
+          {waiting === 1 ? '1 plan proposal is' : `${waiting} plan proposals are`} waiting for you
+        </a>
+      )}
+    </Card>
+  )
+}
+
+function LatestCoachMessage() {
+  const latest = useQuery({ queryKey: ['coach-latest'], queryFn: fetchLatestCoach })
+  if (!latest.data) return null
+  return (
+    <Card title="From your coach" subtitle={latest.data.label ?? undefined}>
+      <div className="max-h-64 overflow-hidden">
+        <CoachText text={latest.data.text} />
+      </div>
+      <a href="#chat" className="mt-2 block text-xs text-accent">
+        Open in Chat
+      </a>
+    </Card>
+  )
+}
+
 export function TodayPage() {
   const { data, error, isPending } = useQuery({ queryKey: ['today'], queryFn: fetchToday })
   if (isPending) return <p className="text-sm text-muted">Loading…</p>
@@ -90,6 +143,10 @@ export function TodayPage() {
   const isToday = wellness?.day === data.day
   return (
     <div className="space-y-4">
+      <div className="grid gap-4 lg:grid-cols-2">
+        <TodayPlan />
+        <LatestCoachMessage />
+      </div>
       <div className="grid grid-cols-2 gap-3 sm:grid-cols-3">
         <StatTile
           label="Readiness"

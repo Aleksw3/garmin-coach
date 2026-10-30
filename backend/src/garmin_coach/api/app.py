@@ -11,7 +11,9 @@ from garmin_coach.api.coach_routes import router as coach_router
 from garmin_coach.api.plan_routes import router as plan_router
 from garmin_coach.api.routes import router
 from garmin_coach.coach.agent import Coach
-from garmin_coach.jobs import SyncRunner, start_scheduler
+from garmin_coach.coach.notify import NO_NOTIFIER, Notifier
+from garmin_coach.coach.proactive import ProactiveCoach
+from garmin_coach.jobs import DEFAULT_SCHEDULE, Schedule, SyncRunner, start_scheduler
 from garmin_coach.sync import SyncService
 
 
@@ -21,12 +23,21 @@ def create_app(
     coach: Coach,
     frontend_dir: Path | None = None,
     schedule_sync: bool = True,
+    proactive: ProactiveCoach | None = None,
+    schedule: Schedule = DEFAULT_SCHEDULE,
+    notifier: Notifier = NO_NOTIFIER,
 ) -> FastAPI:
-    runner = SyncRunner(make_sync_service)
+    runner = SyncRunner(
+        make_sync_service,
+        on_synced=proactive.activity_feedback if proactive else None,
+        on_auth_failed=lambda error: notifier.send(
+            "Garmin login failed", f"The sync could not log in to Garmin: {error}", "#settings"
+        ),
+    )
 
     @asynccontextmanager
     async def lifespan(app: FastAPI) -> AsyncIterator[None]:
-        scheduler = start_scheduler(runner) if schedule_sync else None
+        scheduler = start_scheduler(runner, proactive, schedule) if schedule_sync else None
         yield
         if scheduler is not None:
             scheduler.shutdown(wait=False)
@@ -35,6 +46,8 @@ def create_app(
     app.state.sessions = sessions
     app.state.sync_runner = runner
     app.state.coach = coach
+    app.state.notifier = notifier
+    app.state.schedule = schedule if proactive else None
     app.include_router(router)
     app.include_router(coach_router)
     app.include_router(plan_router)

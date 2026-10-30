@@ -23,6 +23,7 @@ THINKING_BINDING_BETA = "thinking-binding-controls-2026-08-01"
 MAX_ROUNDS = 10
 MAX_PARSE_RETRIES = 2
 TITLE_LENGTH = 60
+LOCK_WAIT_S = 900
 
 SYSTEM = [{"type": "text", "text": SYSTEM_PROMPT, "cache_control": {"type": "ephemeral"}}]
 TOOL_DEFINITIONS = tool_definitions()
@@ -92,15 +93,22 @@ class Coach:
         self.now = now
         self._lock = threading.Lock()
 
-    def reply(self, conversation_id: int, text: str, purpose: str = "chat") -> Iterator[Event]:
+    def reply(
+        self,
+        conversation_id: int,
+        text: str,
+        purpose: str = "chat",
+        label: str | None = None,
+        wait: bool = False,
+    ) -> Iterator[Event]:
         if self.stream_factory is None:
             yield error("No Anthropic API key. Set ANTHROPIC_API_KEY in .env and restart.")
             return
-        if not self._lock.acquire(blocking=False):
+        if not self._lock.acquire(timeout=LOCK_WAIT_S if wait else 0):
             yield error("The coach is already answering. Wait for that reply to finish.")
             return
         try:
-            yield from self._reply(conversation_id, text, purpose)
+            yield from self._reply(conversation_id, text, purpose, label)
         finally:
             self._lock.release()
 
@@ -111,6 +119,7 @@ class Coach:
         role: str,
         content: list[dict[str, Any]],
         display_text: str | None = None,
+        source: str = "user",
     ) -> None:
         now = self.now()
         session.add(
@@ -119,6 +128,7 @@ class Coach:
                 role=role,
                 content=json.dumps(content, ensure_ascii=False),
                 display_text=display_text,
+                source=source,
                 created_at=now,
             )
         )
@@ -126,7 +136,9 @@ class Coach:
         if conversation is not None:
             conversation.updated_at = now
 
-    def _start_turn(self, conversation_id: int, text: str) -> list[dict[str, Any]] | str:
+    def _start_turn(
+        self, conversation_id: int, text: str, label: str | None
+    ) -> list[dict[str, Any]] | str:
         now = self.now()
         with self.sessions() as session:
             conversation = session.get(Conversation, conversation_id)
@@ -151,7 +163,10 @@ class Coach:
                 {"type": "text", "text": context_block(session, now)},
                 {"type": "text", "text": text},
             ]
-            self._save(session, conversation_id, "user", content, display_text=text)
+            if label is None:
+                self._save(session, conversation_id, "user", content, display_text=text)
+            else:
+                self._save(session, conversation_id, "user", content, label, source="schedule")
             if conversation.title is None:
                 conversation.title = title_from(text)
             session.commit()
@@ -190,9 +205,11 @@ class Coach:
                 log.warning("Unparseable tool input, attempt %d", attempt + 1)
         return None
 
-    def _reply(self, conversation_id: int, text: str, purpose: str) -> Iterator[Event]:
+    def _reply(
+        self, conversation_id: int, text: str, purpose: str, label: str | None
+    ) -> Iterator[Event]:
         choice = self.settings.choice(purpose)
-        started = self._start_turn(conversation_id, text)
+        started = self._start_turn(conversation_id, text, label)
         if isinstance(started, str):
             yield error(started)
             return

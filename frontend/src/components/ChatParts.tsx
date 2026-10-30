@@ -58,6 +58,13 @@ export function CoachText({ text }: { text: string }) {
 }
 
 export function Bubble({ item }: { item: Pick<ChatItem, 'role' | 'text' | 'tools'> }) {
+  if (item.role === 'event') {
+    return (
+      <p className="text-center text-xs text-muted">
+        <span className="rounded-full border border-line px-2 py-0.5">Scheduled: {item.text}</span>
+      </p>
+    )
+  }
   if (item.role === 'user') {
     return (
       <div className="flex justify-end">

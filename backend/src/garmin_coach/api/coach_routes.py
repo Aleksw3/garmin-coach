@@ -22,6 +22,7 @@ class ConversationOut(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
     id: int
+    kind: str
     title: str | None
     updated_at: datetime
 
@@ -34,7 +35,7 @@ class ToolCallOut(BaseModel):
 
 
 class ChatItemOut(BaseModel):
-    role: Literal["user", "coach"]
+    role: Literal["user", "coach", "event"]
     text: str
     tools: list[ToolCallOut]
     created_at: datetime
@@ -136,7 +137,7 @@ def chat_items(messages: list[Message]) -> list[ChatItemOut]:
             if message.display_text is not None:
                 items.append(
                     ChatItemOut(
-                        role="user",
+                        role="event" if message.source == "schedule" else "user",
                         text=message.display_text,
                         tools=[],
                         created_at=message.created_at,
@@ -192,6 +193,7 @@ def get_conversation(session: SessionDep, conversation_id: int) -> ConversationD
     ).all()
     return ConversationDetailOut(
         id=conversation.id,
+        kind=conversation.kind,
         title=conversation.title,
         updated_at=conversation.updated_at,
         items=chat_items(list(messages)),
@@ -308,3 +310,70 @@ def get_usage(session: SessionDep, request: Request) -> UsageOut:
         background_model=settings.choice("checkin").model,
         recent=[UsageRowOut.model_validate(row) for row in recent],
     )
+
+
+class LatestCoachMessageOut(BaseModel):
+    conversation_id: int
+    title: str | None
+    label: str | None
+    text: str
+    created_at: datetime
+
+
+class NotificationsOut(BaseModel):
+    enabled: bool
+    url: str
+    topic: str | None
+    checkin_time: str | None
+    review: str | None
+
+
+@router.get("/coach/latest", response_model=LatestCoachMessageOut | None)
+def latest_coach_message(session: SessionDep) -> LatestCoachMessageOut | None:
+    conversation = session.scalars(
+        select(Conversation)
+        .where(Conversation.kind == "coach")
+        .order_by(Conversation.updated_at.desc())
+        .limit(1)
+    ).first()
+    if conversation is None:
+        return None
+    messages = session.scalars(
+        select(Message).where(Message.conversation_id == conversation.id).order_by(Message.id)
+    ).all()
+    items = chat_items(list(messages))
+    replies = [index for index, item in enumerate(items) if item.role == "coach" and item.text]
+    if not replies:
+        return None
+    last = replies[-1]
+    label = items[last - 1].text if last > 0 and items[last - 1].role == "event" else None
+    return LatestCoachMessageOut(
+        conversation_id=conversation.id,
+        title=conversation.title,
+        label=label,
+        text=items[last].text,
+        created_at=items[last].created_at,
+    )
+
+
+@router.get("/notifications", response_model=NotificationsOut)
+def notifications(request: Request) -> NotificationsOut:
+    notifier = request.app.state.notifier
+    schedule = request.app.state.schedule
+    return NotificationsOut(
+        enabled=notifier.enabled,
+        url=notifier.url,
+        topic=notifier.topic,
+        checkin_time=schedule.checkin_time if schedule else None,
+        review=f"{schedule.review_day} {schedule.review_time}" if schedule else None,
+    )
+
+
+@router.post("/notifications/test")
+def test_notification(request: Request) -> dict[str, bool]:
+    sent = request.app.state.notifier.send(
+        "Test from your coach",
+        "Notifications from the training coach reach this phone.",
+        "#settings",
+    )
+    return {"sent": sent}

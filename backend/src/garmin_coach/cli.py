@@ -149,21 +149,33 @@ def command_serve(args: argparse.Namespace) -> None:
 
     from garmin_coach.api.app import create_app
     from garmin_coach.coach.agent import Coach, anthropic_stream_factory, coach_settings
+    from garmin_coach.coach.notify import Notifier
+    from garmin_coach.coach.proactive import ProactiveCoach
+    from garmin_coach.jobs import Schedule
 
     settings = get_settings()
     sessions = open_database()
+    key = settings.anthropic_api_key
+    coach = Coach(
+        sessions, anthropic_stream_factory(key) if key else None, coach_settings(settings)
+    )
+    notifier = Notifier(
+        settings.ntfy_url, settings.ntfy_topic, settings.ntfy_token, settings.app_url
+    )
+    proactive = (
+        ProactiveCoach(sessions, coach, notifier, timedelta(hours=settings.feedback_window_hours))
+        if key
+        else None
+    )
     app = create_app(
         sessions,
         lambda: sync_service(sessions),
-        Coach(
-            sessions,
-            anthropic_stream_factory(settings.anthropic_api_key)
-            if settings.anthropic_api_key
-            else None,
-            coach_settings(settings),
-        ),
+        coach,
         frontend_dir=settings.frontend_dir,
         schedule_sync=not args.no_schedule,
+        proactive=proactive,
+        schedule=Schedule(settings.checkin_time, settings.review_day, settings.review_time),
+        notifier=notifier,
     )
     uvicorn.run(app, host=args.host, port=args.port)
 

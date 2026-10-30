@@ -1,6 +1,6 @@
 from datetime import date, datetime
 
-from sqlalchemy import Date, DateTime, Float, ForeignKey, Integer, String, Text
+from sqlalchemy import BigInteger, Date, DateTime, Float, ForeignKey, Integer, String, Text
 from sqlalchemy.orm import Mapped, mapped_column
 
 from garmin_coach.db import Base
@@ -50,6 +50,7 @@ class Conversation(Base):
     __tablename__ = "conversation"
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    kind: Mapped[str] = mapped_column(String(16), default="chat", server_default="chat")
     title: Mapped[str | None] = mapped_column(String(200))
     created_at: Mapped[datetime] = mapped_column(DateTime)
     updated_at: Mapped[datetime] = mapped_column(DateTime)
@@ -65,6 +66,7 @@ class Message(Base):
     role: Mapped[str] = mapped_column(String(16))
     content: Mapped[str] = mapped_column(Text)
     display_text: Mapped[str | None] = mapped_column(Text)
+    source: Mapped[str] = mapped_column(String(16), default="user", server_default="user")
     created_at: Mapped[datetime] = mapped_column(DateTime)
 
 
@@ -81,3 +83,10 @@ class ApiUsage(Base):
     cache_read_tokens: Mapped[int] = mapped_column(Integer)
     output_tokens: Mapped[int] = mapped_column(Integer)
     cost_usd: Mapped[float] = mapped_column(Float)
+
+
+class ActivityFeedback(Base):
+    __tablename__ = "activity_feedback"
+
+    activity_id: Mapped[int] = mapped_column(BigInteger, primary_key=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime)

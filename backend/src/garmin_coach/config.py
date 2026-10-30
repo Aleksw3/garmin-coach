@@ -23,6 +23,14 @@ class Settings(BaseSettings):
     plan_model: str = "claude-opus-5-5"
     plan_effort: str = "high"
     background_model: str = "claude-haiku-5-5"
+    ntfy_url: str = "https://ntfy.sh"
+    ntfy_topic: str | None = None
+    ntfy_token: str | None = None
+    app_url: str | None = None
+    checkin_time: str = "06:30"
+    review_day: str = "sun"
+    review_time: str = "19:00"
+    feedback_window_hours: int = 36
     monthly_budget_usd: float = 5.0
 
     @property

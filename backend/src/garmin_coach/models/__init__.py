@@ -7,6 +7,7 @@ from garmin_coach.models.activity import (
     StrengthSetOverride,
 )
 from garmin_coach.models.coach import (
+    ActivityFeedback,
     ApiUsage,
     AthleteProfile,
     CoachNote,
@@ -21,6 +22,7 @@ from garmin_coach.models.wellness import BodyComposition, DailyWellness
 
 __all__ = [
     "Activity",
+    "ActivityFeedback",
     "ActivityLap",
     "ActivityZoneTime",
     "ApiUsage",

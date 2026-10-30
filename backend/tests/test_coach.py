@@ -15,6 +15,8 @@ from garmin_coach import raw_store
 from garmin_coach.api.app import create_app
 from garmin_coach.api.coach_routes import chat_items
 from garmin_coach.coach.agent import Coach, coach_settings
+from garmin_coach.coach.notify import Notifier
+from garmin_coach.coach.proactive import ProactiveCoach
 from garmin_coach.coach.tools import ToolContext, run_tool, tool_definitions
 from garmin_coach.coach.usage import cost_usd
 from garmin_coach.config import Settings
@@ -385,3 +387,80 @@ def test_plan_proposals_change_the_plan_only_when_accepted(seeded: sessionmaker[
         ("2026-11-06", "Hills"),
     ]
     assert client.patch(f"/api/sessions/{hills}", json={"skipped": True}).json()["skipped"]
+
+
+@pytest.fixture
+def sent(monkeypatch: pytest.MonkeyPatch) -> list[Any]:
+    requests: list[Any] = []
+
+    class Response:
+        def __enter__(self) -> "Response":
+            return self
+
+        def __exit__(self, *_: object) -> None:
+            return None
+
+    def urlopen(request: Any, timeout: float) -> Response:
+        requests.append(request)
+        return Response()
+
+    monkeypatch.setattr("garmin_coach.coach.notify.urllib.request.urlopen", urlopen)
+    return requests
+
+
+def test_notifier_posts_to_the_topic(sent: list[Any]) -> None:
+    assert not Notifier("https://ntfy.sh", None).send("Title", "Body")
+    notifier = Notifier("https://ntfy.sh/", "my topic", "token", "http://coach.lan:8000/")
+    assert notifier.send("Morning check-in", "Rest today")
+
+    request = sent[0]
+    assert request.full_url.startswith("https://ntfy.sh/my%20topic?title=Morning+check-in")
+    assert "click=http%3A%2F%2Fcoach.lan%3A8000%2F%23chat" in request.full_url
+    assert request.data == b"Rest today"
+    assert request.get_header("Authorization") == "Bearer token"
+
+
+def test_proactive_messages_go_to_the_weekly_coach_thread(
+    seeded: sessionmaker[Session], sent: list[Any]
+) -> None:
+    claude = FakeClaude(
+        [
+            tool_reply("get_wellness", {"start": "2026-10-21", "end": "2026-10-28"}),
+            text_reply("You look recovered. Run the hills as planned."),
+            text_reply("Good steady run."),
+        ]
+    )
+    notifier = Notifier("https://ntfy.sh", "coach-topic")
+    proactive = ProactiveCoach(seeded, make_coach(seeded, claude), notifier, now=lambda: NOW)
+
+    assert proactive.morning_checkin() == "You look recovered. Run the hills as planned."
+    assert proactive.activity_feedback() == ["Good steady run."]
+    assert proactive.activity_feedback() == []
+
+    assert claude.requests[0]["output_config"] == {"effort": "low"}
+    assert claude.requests[0]["model"] == "claude-haiku-5-5"
+    assert "Scheduled morning check-in for Wednesday 28 October" in json.dumps(
+        claude.requests[0]["messages"][-1]
+    )
+    assert [r.data.decode() for r in sent] == [
+        "You look recovered. Run the hills as planned.",
+        "Good steady run.",
+    ]
+    assert "title=Feedback%3A+Activity+1" in sent[1].full_url
+
+    with seeded() as session:
+        thread = session.scalars(select(Conversation).where(Conversation.kind == "coach")).one()
+        assert thread.title == "Coach, week from 26 Oct 2026"
+        items = chat_items(
+            list(session.scalars(select(Message).where(Message.conversation_id == thread.id)))
+        )
+    assert [i.role for i in items] == ["event", "coach", "event", "coach"]
+    assert items[0].text == "Morning check-in, 28 Oct"
+
+    def make_service() -> SyncService:
+        return SyncService(FakeGarmin([]), seeded, request_delay=0, sleep=lambda _: None)
+
+    client = TestClient(create_app(seeded, make_service, make_coach(seeded, FakeClaude([]))))
+    latest = client.get("/api/coach/latest").json()
+    assert latest["text"] == "Good steady run."
+    assert latest["label"] == "Feedback on Activity 1"

@@ -1,5 +1,6 @@
 export type Wellness = {
   day: string
+  sleep_day: string | null
   sleep_h: number | null
   sleep_score: number | null
   hrv_last_night: number | null

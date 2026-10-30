@@ -89,18 +89,18 @@ def activity_out(activity: Activity, groups: dict[str, str]) -> ActivityOut:
 
 
 def latest_wellness(session: Session, day: date) -> WellnessOut | None:
-    wellness = session.scalars(
-        select(DailyWellness)
-        .where(DailyWellness.day <= day, DailyWellness.sleep_s.is_not(None))
-        .order_by(DailyWellness.day.desc())
-        .limit(1)
-    ).first()
+    latest = (
+        select(DailyWellness).where(DailyWellness.day <= day).order_by(DailyWellness.day.desc())
+    )
+    wellness = session.scalars(latest.limit(1)).first()
     if wellness is None:
         return None
+    slept = session.scalars(latest.where(DailyWellness.sleep_s.is_not(None)).limit(1)).first()
     return WellnessOut(
         day=wellness.day,
-        sleep_h=None if wellness.sleep_s is None else wellness.sleep_s / 3600,
-        sleep_score=wellness.sleep_score,
+        sleep_day=slept.day if slept else None,
+        sleep_h=slept.sleep_s / 3600 if slept and slept.sleep_s else None,
+        sleep_score=slept.sleep_score if slept else None,
         hrv_last_night=wellness.hrv_last_night,
         hrv_status=wellness.hrv_status,
         resting_hr=wellness.resting_hr,

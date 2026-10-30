@@ -5,6 +5,7 @@ from pydantic import BaseModel
 
 class WellnessOut(BaseModel):
     day: date
+    sleep_day: date | None
     sleep_h: float | None
     sleep_score: int | None
     hrv_last_night: int | None

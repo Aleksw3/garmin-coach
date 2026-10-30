@@ -140,7 +140,7 @@ export function TodayPage() {
   if (error) return <p className="text-sm text-critical">{error.message}</p>
 
   const wellness = data.wellness
-  const isToday = wellness?.day === data.day
+  const sleptToday = wellness?.sleep_day === data.day
   return (
     <div className="space-y-4">
       <div className="grid gap-4 lg:grid-cols-2">
@@ -154,7 +154,7 @@ export function TodayPage() {
           detail={sentence(wellness?.readiness_level)}
         />
         <StatTile
-          label={isToday ? 'Sleep last night' : `Sleep (${wellness ? weekday(wellness.day) : '–'})`}
+          label={sleptToday ? 'Sleep last night' : `Sleep (${wellness?.sleep_day ? weekday(wellness.sleep_day) : '–'})`}
           value={hours(wellness?.sleep_h)}
           detail={wellness?.sleep_score ? `Score ${wellness.sleep_score}` : undefined}
         />

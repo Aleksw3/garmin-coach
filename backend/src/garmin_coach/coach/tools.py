@@ -33,6 +33,8 @@ from garmin_coach.models import (
     DailyWellness,
     Goal,
     Plan,
+    PlannedSession,
+    SessionMatch,
 )
 from garmin_coach.normalize.sports import OTHER, sport_groups
 from garmin_coach.reports import format_weekly_totals, week_start, weekly_totals
@@ -232,7 +234,7 @@ def get_activity(ctx: ToolContext, args: ActivityId) -> str:
                 "  "
                 + joined(
                     [
-                        f"lap {lap.lap_index + 1}",
+                        f"lap {lap.lap_index}",
                         number(None if lap.distance_m is None else lap.distance_m / 1000, "km", 2),
                         f"{hours_minutes(lap.duration_s)}",
                         pace(lap.avg_speed_mps),
@@ -406,6 +408,12 @@ def plan_lines(ctx: ToolContext, args: DateRange) -> list[str]:
     ]
     rows = sessions_between(ctx.session, args.start, args.end)
     lines.append(f"{len(rows)} planned sessions from {args.start} to {args.end}")
+    matches = {
+        m.planned_session_id: m
+        for m in ctx.session.scalars(
+            select(SessionMatch).where(SessionMatch.planned_session_id.in_([r.id for r in rows]))
+        )
+    }
     for row in rows:
         lines.append(
             joined(
@@ -415,7 +423,7 @@ def plan_lines(ctx: ToolContext, args: DateRange) -> list[str]:
                     f"{row.sport} {row.kind}",
                     row.title,
                     session_targets(row),
-                    "skipped" if row.skipped else None,
+                    session_status(row, matches.get(row.id), ctx.today),
                     row.description,
                 ]
             )
@@ -423,6 +431,17 @@ def plan_lines(ctx: ToolContext, args: DateRange) -> list[str]:
     for proposal in pending_proposals(ctx.session):
         lines.append(f"Pending proposal {proposal.id}, not accepted yet: {proposal.summary}")
     return lines
+
+
+def session_status(row: PlannedSession, match: SessionMatch | None, today: date) -> str | None:
+    if row.skipped:
+        return "skipped"
+    if match is not None:
+        score = "" if match.compliance is None else f", compliance {match.compliance:.0f}%"
+        return f"done as activity {match.activity_id}{score}"
+    if row.sport != "rest" and row.day < today:
+        return "not done"
+    return None
 
 
 def get_plan(ctx: ToolContext, args: DateRange) -> str:

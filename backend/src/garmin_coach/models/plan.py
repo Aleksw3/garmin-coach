@@ -1,6 +1,16 @@
 from datetime import date, datetime
 
-from sqlalchemy import Boolean, Date, DateTime, Float, ForeignKey, Integer, String, Text
+from sqlalchemy import (
+    BigInteger,
+    Boolean,
+    Date,
+    DateTime,
+    Float,
+    ForeignKey,
+    Integer,
+    String,
+    Text,
+)
 from sqlalchemy.orm import Mapped, mapped_column
 
 from garmin_coach.db import Base
@@ -48,3 +58,14 @@ class PlanProposal(Base):
     body: Mapped[str] = mapped_column(Text)
     status: Mapped[str] = mapped_column(String(16), default="pending")
     decided_at: Mapped[datetime | None] = mapped_column(DateTime)
+
+
+class SessionMatch(Base):
+    __tablename__ = "session_match"
+
+    planned_session_id: Mapped[int] = mapped_column(
+        ForeignKey("planned_session.id", ondelete="CASCADE"), primary_key=True
+    )
+    activity_id: Mapped[int] = mapped_column(BigInteger, unique=True)
+    compliance: Mapped[float | None] = mapped_column(Float)
+    details: Mapped[str] = mapped_column(Text)

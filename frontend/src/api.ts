@@ -238,7 +238,14 @@ export type SessionSpec = {
   description: string | null
 }
 
-export type PlannedSession = SessionSpec & { id: number; plan_id: number; skipped: boolean }
+export type SessionMatch = { activity_id: number; compliance: number | null; details: Record<string, number[]> }
+
+export type PlannedSession = SessionSpec & {
+  id: number
+  plan_id: number
+  skipped: boolean
+  match: SessionMatch | null
+}
 
 export type PlanInfo = {
   id: number
@@ -283,3 +290,57 @@ export const rejectProposal = (id: number) => request<Proposal>(`/api/proposals/
 export const setSkipped = (id: number, skipped: boolean) =>
   request<PlannedSession>(`/api/sessions/${id}`, json('PATCH', { skipped }))
 export const deleteSession = (id: number) => send(`/api/sessions/${id}`, { method: 'DELETE' })
+
+export type SetValues = {
+  exercise_category: string | null
+  exercise_name: string | null
+  reps: number | null
+  weight_kg: number | null
+}
+
+export type StrengthSetRow = SetValues & {
+  set_index: number
+  duration_s: number | null
+  original: SetValues
+  edited: boolean
+  deleted: boolean
+}
+
+export type Lap = {
+  lap_index: number
+  distance_m: number | null
+  duration_s: number | null
+  elevation_gain_m: number | null
+  elevation_loss_m: number | null
+  avg_hr: number | null
+  max_hr: number | null
+  avg_speed_mps: number | null
+  avg_grade_adjusted_speed_mps: number | null
+  avg_power_w: number | null
+  intensity_type: string | null
+}
+
+export type ActivityDetail = Activity & {
+  moving_s: number | null
+  elevation_loss_m: number | null
+  max_hr: number | null
+  avg_speed_mps: number | null
+  avg_grade_adjusted_speed_mps: number | null
+  avg_power_w: number | null
+  calories: number | null
+  aerobic_training_effect: number | null
+  anaerobic_training_effect: number | null
+  training_effect_label: string | null
+  location_name: string | null
+  laps: Lap[]
+  zones: { kind: string; zone: number; seconds: number; low_boundary: number | null }[]
+  sets: StrengthSetRow[]
+  planned: { session_id: number; title: string; compliance: number | null; details: Record<string, number[]> } | null
+  exercise_categories: string[]
+}
+
+export const fetchActivity = (id: number) => request<ActivityDetail>(`/api/activities/${id}`)
+export const editSet = (activityId: number, setIndex: number, values: SetValues & { deleted: boolean }) =>
+  request<StrengthSetRow[]>(`/api/activities/${activityId}/sets/${setIndex}`, json('PUT', values))
+export const restoreSet = (activityId: number, setIndex: number) =>
+  send(`/api/activities/${activityId}/sets/${setIndex}/edit`, { method: 'DELETE' })

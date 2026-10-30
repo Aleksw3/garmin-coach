@@ -6,6 +6,7 @@ from fastapi import FastAPI
 from fastapi.staticfiles import StaticFiles
 from sqlalchemy.orm import Session, sessionmaker
 
+from garmin_coach.api.activity_routes import router as activity_router
 from garmin_coach.api.coach_routes import router as coach_router
 from garmin_coach.api.plan_routes import router as plan_router
 from garmin_coach.api.routes import router
@@ -37,6 +38,7 @@ def create_app(
     app.include_router(router)
     app.include_router(coach_router)
     app.include_router(plan_router)
+    app.include_router(activity_router)
 
     @app.get("/health")
     def health() -> dict[str, str]:

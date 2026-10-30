@@ -1,3 +1,4 @@
+import json
 from datetime import date, datetime, timedelta
 from typing import Annotated
 
@@ -17,12 +18,19 @@ from garmin_coach.coach.plan import (
     reject_proposal,
     sessions_between,
 )
-from garmin_coach.models import Activity, Plan, PlannedSession, PlanProposal
+from garmin_coach.metrics.compliance import match_sessions
+from garmin_coach.models import Activity, Plan, PlannedSession, PlanProposal, SessionMatch
 from garmin_coach.normalize.sports import sport_groups
 
 router = APIRouter(prefix="/api")
 
 MAX_CALENDAR_DAYS = 200
+
+
+class MatchOut(BaseModel):
+    activity_id: int
+    compliance: float | None
+    details: dict[str, list[float]]
 
 
 class SessionOut(SessionSpec):
@@ -31,6 +39,19 @@ class SessionOut(SessionSpec):
     id: int
     plan_id: int
     skipped: bool
+    match: MatchOut | None = None
+
+
+def session_out(session: SessionDep, row: PlannedSession) -> SessionOut:
+    match = session.get(SessionMatch, row.id)
+    out = SessionOut.model_validate(row)
+    if match is not None:
+        out.match = MatchOut(
+            activity_id=match.activity_id,
+            compliance=match.compliance,
+            details=json.loads(match.details),
+        )
+    return out
 
 
 class PlanOut(BaseModel):
@@ -86,7 +107,7 @@ def proposal_out(session: SessionDep, proposal: PlanProposal) -> ProposalOut:
         changes.append(
             ChangeOut(
                 **change.model_dump(),
-                current=SessionOut.model_validate(current) if current else None,
+                current=session_out(session, current) if current else None,
             )
         )
     return ProposalOut(
@@ -118,7 +139,7 @@ def get_calendar(session: SessionDep, start: date, end: date) -> CalendarOut:
         start=start,
         end=end,
         plans=[PlanOut.model_validate(plan) for plan in plans],
-        sessions=[SessionOut.model_validate(row) for row in sessions_between(session, start, end)],
+        sessions=[session_out(session, row) for row in sessions_between(session, start, end)],
         activities=[activity_out(activity, groups) for activity in activities],
     )
 
@@ -152,10 +173,11 @@ def find_proposal(session: SessionDep, proposal_id: int) -> PlanProposal:
 def accept(session: SessionDep, proposal_id: int) -> ProposalOut:
     proposal = find_proposal(session, proposal_id)
     try:
-        accept_proposal(session, proposal, datetime.now())
+        first, last = accept_proposal(session, proposal, datetime.now())
     except PlanError as error:
         session.rollback()
         raise HTTPException(409, str(error)) from error
+    match_sessions(session, first, last)
     session.commit()
     return proposal_out(session, proposal)
 
@@ -179,15 +201,20 @@ def find_session(session: SessionDep, session_id: int) -> PlannedSession:
 
 
 @router.patch("/sessions/{session_id}", response_model=SessionOut)
-def patch_session(session: SessionDep, session_id: int, body: SessionPatch) -> PlannedSession:
+def patch_session(session: SessionDep, session_id: int, body: SessionPatch) -> SessionOut:
     row = find_session(session, session_id)
     row.skipped = body.skipped
+    match_sessions(session, row.day, row.day)
     session.commit()
-    return row
+    return session_out(session, row)
 
 
 @router.delete("/sessions/{session_id}", status_code=204)
 def delete_session(session: SessionDep, session_id: int) -> Response:
-    session.delete(find_session(session, session_id))
+    row = find_session(session, session_id)
+    day = row.day
+    session.delete(row)
+    session.flush()
+    match_sessions(session, day, day)
     session.commit()
     return Response(status_code=204)

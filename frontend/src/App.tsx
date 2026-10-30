@@ -6,6 +6,7 @@ import { TodayPage } from './pages/Today'
 const TrendsPage = lazy(() => import('./pages/Trends').then((m) => ({ default: m.TrendsPage })))
 const ChatPage = lazy(() => import('./pages/Chat').then((m) => ({ default: m.ChatPage })))
 const PlanPage = lazy(() => import('./pages/Plan').then((m) => ({ default: m.PlanPage })))
+const ActivityPage = lazy(() => import('./pages/Activity').then((m) => ({ default: m.ActivityPage })))
 const GoalsPage = lazy(() => import('./pages/Goals').then((m) => ({ default: m.GoalsPage })))
 const SettingsPage = lazy(() => import('./pages/Settings').then((m) => ({ default: m.SettingsPage })))
 
@@ -18,8 +19,19 @@ const PAGES = [
   { hash: '#settings', label: 'Settings', element: <SettingsPage /> },
 ]
 
+const ACTIVITY_HASH = /^#activity\/(\d+)$/
+
+function pageElement(page: string) {
+  const activity = ACTIVITY_HASH.exec(page)
+  if (activity) return <ActivityPage id={Number(activity[1])} />
+  return PAGES.find((p) => p.hash === page)?.element
+}
+
 function useHashPage(): string {
-  const read = () => (PAGES.some((p) => p.hash === window.location.hash) ? window.location.hash : '#today')
+  const read = () => {
+    const hash = window.location.hash
+    return PAGES.some((p) => p.hash === hash) || ACTIVITY_HASH.test(hash) ? hash : '#today'
+  }
   const [page, setPage] = useState(read)
   useEffect(() => {
     const onChange = () => setPage(read())
@@ -100,7 +112,7 @@ export default function App() {
       </header>
       <main>
         <Suspense fallback={<p className="text-sm text-muted">Loading…</p>}>
-          {PAGES.find((p) => p.hash === page)?.element}
+          {pageElement(page)}
         </Suspense>
       </main>
     </div>

@@ -7,6 +7,8 @@ from garmin_coach.normalize.daily import normalize_day
 
 
 def rebuild_all(session: Session) -> tuple[int, int]:
+    from garmin_coach.metrics.compliance import match_all
+
     activity_ids = raw_store.activity_ids(session)
     for activity_id in activity_ids:
         normalize_activity(session, activity_id)
@@ -14,6 +16,7 @@ def rebuild_all(session: Session) -> tuple[int, int]:
     for day in days:
         normalize_day(session, day)
     tag_commutes(session)
+    match_all(session)
     return len(activity_ids), len(days)
 
 

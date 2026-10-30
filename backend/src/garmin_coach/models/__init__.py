@@ -14,7 +14,7 @@ from garmin_coach.models.coach import (
     Goal,
     Message,
 )
-from garmin_coach.models.plan import Plan, PlannedSession, PlanProposal
+from garmin_coach.models.plan import Plan, PlannedSession, PlanProposal, SessionMatch
 from garmin_coach.models.raw import RawActivity, RawDaily
 from garmin_coach.models.sync import SyncRun, SyncState
 from garmin_coach.models.wellness import BodyComposition, DailyWellness
@@ -36,6 +36,7 @@ __all__ = [
     "PlannedSession",
     "RawActivity",
     "RawDaily",
+    "SessionMatch",
     "SportMapping",
     "StrengthSet",
     "StrengthSetOverride",

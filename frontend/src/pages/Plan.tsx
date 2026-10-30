@@ -230,7 +230,13 @@ function SessionCard({ session, today }: { session: PlannedSession; today: strin
   const skip = useMutation({ mutationFn: (skipped: boolean) => setSkipped(session.id, skipped), onSuccess: refresh })
   const remove = useMutation({ mutationFn: () => deleteSession(session.id), onSuccess: refresh })
   const past = session.day < today
-  const status = session.skipped ? 'Skipped' : past && session.sport !== 'rest' ? 'Not done' : null
+  const status = session.skipped
+    ? 'Skipped'
+    : session.match
+      ? `✓ Done${session.match.compliance !== null ? `, ${number(session.match.compliance)}%` : ''}`
+      : past && session.sport !== 'rest'
+        ? '▲ Not done'
+        : null
   return (
     <details
       className={`rounded-lg border border-line bg-surface px-2 py-1.5 text-xs ${session.skipped ? 'opacity-60' : ''}`}
@@ -239,13 +245,18 @@ function SessionCard({ session, today }: { session: PlannedSession; today: strin
       <summary className="cursor-pointer list-none">
         <span className="block font-semibold text-primary">{session.title}</span>
         <span className="block text-secondary">{targets(session) || session.kind}</span>
-        {status && <span className="block text-muted">{status}</span>}
+        {status && <span className={`block ${session.match ? 'text-secondary' : 'text-muted'}`}>{status}</span>}
       </summary>
       <div className="mt-2 space-y-2">
         <p className="text-muted">
           {session.sport === 'rest' ? 'Rest' : groupLabel(session.sport)}, {session.kind}
         </p>
         {session.description && <p className="whitespace-pre-wrap text-secondary">{session.description}</p>}
+        {session.match && (
+          <a href={`#activity/${session.match.activity_id}`} className="block text-accent">
+            Open the activity
+          </a>
+        )}
         <div className="flex gap-3">
           <button type="button" onClick={() => skip.mutate(!session.skipped)} className="text-accent">
             {session.skipped ? 'Unskip' : 'Skip'}
@@ -285,18 +296,19 @@ function WeekRow({
   monday,
   sessions,
   activities,
+  doneSeconds,
   today,
 }: {
   monday: string
   sessions: PlannedSession[]
   activities: Activity[]
+  doneSeconds: number
   today: string
 }) {
   const days = Array.from({ length: 7 }, (_, index) => addDays(monday, index))
   const plannedMinutes = sessions
     .filter((s) => !s.skipped)
     .reduce((sum, s) => sum + (s.duration_min ?? 0), 0)
-  const doneSeconds = activities.reduce((sum, a) => sum + (a.duration_s ?? 0), 0)
   return (
     <section className="min-w-0">
       <h3 className="mb-2 text-sm font-semibold text-primary">
@@ -342,6 +354,7 @@ export function PlanPage() {
   const proposals = useQuery({ queryKey: ['proposals'], queryFn: fetchProposals })
   const mondays = Array.from({ length: WEEKS_SHOWN }, (_, index) => addDays(first, index * 7))
   const data = calendar.data
+  const matched = new Set(data?.sessions.map((s) => s.match?.activity_id))
   const futureSessions = data?.sessions.filter((s) => s.day >= today).length ?? 0
 
   return (
@@ -388,17 +401,21 @@ export function PlanPage() {
       {calendar.error && <p className="text-sm text-critical">{calendar.error.message}</p>}
       {data && (
         <div className="space-y-6">
-          {mondays.map((monday) => (
-            <WeekRow
-              key={monday}
-              monday={monday}
-              today={today}
-              sessions={data.sessions.filter((s) => mondayOf(s.day) === monday)}
-              activities={data.activities.filter(
-                (a) => a.sport_group !== 'commute' && mondayOf(a.start_time_local.slice(0, 10)) === monday,
-              )}
-            />
-          ))}
+          {mondays.map((monday) => {
+            const weekActivities = data.activities.filter(
+              (a) => a.sport_group !== 'commute' && mondayOf(a.start_time_local.slice(0, 10)) === monday,
+            )
+            return (
+              <WeekRow
+                key={monday}
+                monday={monday}
+                today={today}
+                sessions={data.sessions.filter((s) => mondayOf(s.day) === monday)}
+                activities={weekActivities.filter((a) => !matched.has(a.id))}
+                doneSeconds={weekActivities.reduce((sum, a) => sum + (a.duration_s ?? 0), 0)}
+              />
+            )
+          })}
         </div>
       )}
       {futureSessions > 0 && (

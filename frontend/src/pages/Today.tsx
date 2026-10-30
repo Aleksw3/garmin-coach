@@ -59,7 +59,8 @@ function ActivityRow({ activity }: { activity: Activity }) {
     activity.terrain && activity.terrain !== 'unknown' ? activity.terrain : null,
   ].filter(Boolean)
   return (
-    <li className="flex gap-3 py-2">
+    <li>
+      <a href={`#activity/${activity.id}`} className="-mx-2 flex gap-3 rounded-lg px-2 py-2 hover:bg-raised">
       <span
         className="mt-1.5 h-2.5 w-2.5 shrink-0 rounded-sm"
         style={{ background: groupColor(theme, activity.sport_group) }}
@@ -75,6 +76,7 @@ function ActivityRow({ activity }: { activity: Activity }) {
           {activity.training_load !== null && ` · load ${number(activity.training_load)}`}
         </div>
       </div>
+      </a>
     </li>
   )
 }

@@ -15,6 +15,7 @@ from garmin_coach.models.coach import (
     Goal,
     Message,
 )
+from garmin_coach.models.evidence import Evidence, EvidenceTopic
 from garmin_coach.models.plan import Plan, PlannedSession, PlanProposal, SessionMatch
 from garmin_coach.models.raw import RawActivity, RawDaily
 from garmin_coach.models.sync import SyncRun, SyncState
@@ -31,6 +32,8 @@ __all__ = [
     "CoachNote",
     "Conversation",
     "DailyWellness",
+    "Evidence",
+    "EvidenceTopic",
     "Goal",
     "Message",
     "Plan",

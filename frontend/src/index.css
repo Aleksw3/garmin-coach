@@ -128,3 +128,11 @@ body {
   border-radius: 0.25rem;
   padding: 0 0.25rem;
 }
+
+.no-scrollbar {
+  scrollbar-width: none;
+}
+
+.no-scrollbar::-webkit-scrollbar {
+  display: none;
+}

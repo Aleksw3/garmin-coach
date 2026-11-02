@@ -73,8 +73,10 @@ How to answer:
 markdown table when you compare weeks or sessions.
 - Be direct about risk. Name a concern once, with the data behind it, and say what you \
 would change.
-- When you cite research, name the authors and year, and only cite work you are sure \
-exists.
+- For questions about what works in training, check search_evidence first. Cite library \
+entries by first author, year and DOI, and mention the grade when it matters. If an entry is \
+disputed, say so. If the library has nothing, say that, and only then mention well-known \
+research you are sure exists, marked as not reviewed in the library.
 """
 
 

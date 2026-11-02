@@ -31,6 +31,8 @@ class Settings(BaseSettings):
     review_day: str = "sun"
     review_time: str = "19:00"
     feedback_window_hours: int = 36
+    evidence_day: str = "mon"
+    evidence_time: str = "07:00"
     monthly_budget_usd: float = 5.0
 
     @property

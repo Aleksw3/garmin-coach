@@ -19,6 +19,7 @@ from garmin_coach.coach.plan import (
     session_targets,
     sessions_between,
 )
+from garmin_coach.evidence.library import citation, search
 from garmin_coach.metrics.load import training_load
 from garmin_coach.metrics.recovery import hrv_baseline, resting_hr_baseline
 from garmin_coach.metrics.running import climb_per_km, terrain
@@ -31,6 +32,7 @@ from garmin_coach.models import (
     AthleteProfile,
     CoachNote,
     DailyWellness,
+    Evidence,
     Goal,
     Plan,
     PlannedSession,
@@ -105,6 +107,14 @@ class NoteQuery(ToolInput):
 
 class NewNote(ToolInput):
     text: str = Field(min_length=1, max_length=1000)
+
+
+class EvidenceQuery(ToolInput):
+    query: str = Field(
+        min_length=2,
+        max_length=300,
+        description="Plain words, for example strength training runners",
+    )
 
 
 class ProposalText(ToolInput):
@@ -479,6 +489,37 @@ def propose_changes(ctx: ToolContext, args: ChangesInput) -> str:
     )
 
 
+def search_evidence(ctx: ToolContext, args: EvidenceQuery) -> str:
+    entries = search(ctx.session, args.query)
+    if not entries:
+        return "No approved evidence matches this query"
+    lines = []
+    for entry in entries:
+        disputed = ctx.session.get(Evidence, entry.disputed_by_id) if entry.disputed_by_id else None
+        lines.append(
+            "\n".join(
+                line
+                for line in [
+                    f"evidence {entry.id} | {citation(entry)} | doi {entry.doi or 'none'} | "
+                    f"grade {entry.grade} ({entry.design}"
+                    + (f", n={entry.sample_size}" if entry.sample_size else "")
+                    + ")",
+                    f"  title: {entry.title}",
+                    f"  claim: {entry.claim}",
+                    f"  population: {entry.population}",
+                    f"  takeaway: {entry.takeaway}",
+                    f"  limitations: {entry.limitations}",
+                    f"  disputed by evidence {disputed.id}: {citation(disputed)}, {disputed.claim}"
+                    if disputed
+                    else None,
+                    f"  reviewer note: {entry.notes}" if entry.notes else None,
+                ]
+                if line
+            )
+        )
+    return "\n".join(lines)
+
+
 def save_note(ctx: ToolContext, args: NewNote) -> str:
     note = CoachNote(created_at=datetime.now(), text=args.text)
     ctx.session.add(note)
@@ -579,6 +620,14 @@ TOOLS = (
         "session from its first day on. Include rest days as sessions with sport rest.",
         PlanProposalInput,
         propose_plan,
+    ),
+    Tool(
+        "search_evidence",
+        "Search the athlete's approved research library: claims, populations, takeaways, "
+        "grades (A meta-analysis or systematic review, B randomized trial, C controlled or "
+        "observational, D review or other) and DOIs.",
+        EvidenceQuery,
+        search_evidence,
     ),
     Tool(
         "save_note",

@@ -8,11 +8,13 @@ from sqlalchemy.orm import Session, sessionmaker
 
 from garmin_coach.api.activity_routes import router as activity_router
 from garmin_coach.api.coach_routes import router as coach_router
+from garmin_coach.api.evidence_routes import router as evidence_router
 from garmin_coach.api.plan_routes import router as plan_router
 from garmin_coach.api.routes import router
 from garmin_coach.coach.agent import Coach
 from garmin_coach.coach.notify import NO_NOTIFIER, Notifier
 from garmin_coach.coach.proactive import ProactiveCoach
+from garmin_coach.evidence.fetch import EvidenceFetcher
 from garmin_coach.jobs import DEFAULT_SCHEDULE, Schedule, SyncRunner, start_scheduler
 from garmin_coach.sync import SyncService
 
@@ -26,6 +28,7 @@ def create_app(
     proactive: ProactiveCoach | None = None,
     schedule: Schedule = DEFAULT_SCHEDULE,
     notifier: Notifier = NO_NOTIFIER,
+    evidence_fetcher: EvidenceFetcher | None = None,
 ) -> FastAPI:
     runner = SyncRunner(
         make_sync_service,
@@ -37,7 +40,11 @@ def create_app(
 
     @asynccontextmanager
     async def lifespan(app: FastAPI) -> AsyncIterator[None]:
-        scheduler = start_scheduler(runner, proactive, schedule) if schedule_sync else None
+        scheduler = (
+            start_scheduler(runner, proactive, schedule, evidence_fetcher)
+            if schedule_sync
+            else None
+        )
         yield
         if scheduler is not None:
             scheduler.shutdown(wait=False)
@@ -47,11 +54,13 @@ def create_app(
     app.state.sync_runner = runner
     app.state.coach = coach
     app.state.notifier = notifier
+    app.state.evidence_fetcher = evidence_fetcher
     app.state.schedule = schedule if proactive else None
     app.include_router(router)
     app.include_router(coach_router)
     app.include_router(plan_router)
     app.include_router(activity_router)
+    app.include_router(evidence_router)
 
     @app.get("/health")
     def health() -> dict[str, str]:

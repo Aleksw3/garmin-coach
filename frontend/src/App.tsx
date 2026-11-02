@@ -7,6 +7,7 @@ const TrendsPage = lazy(() => import('./pages/Trends').then((m) => ({ default: m
 const ChatPage = lazy(() => import('./pages/Chat').then((m) => ({ default: m.ChatPage })))
 const PlanPage = lazy(() => import('./pages/Plan').then((m) => ({ default: m.PlanPage })))
 const ActivityPage = lazy(() => import('./pages/Activity').then((m) => ({ default: m.ActivityPage })))
+const ResearchPage = lazy(() => import('./pages/Research').then((m) => ({ default: m.ResearchPage })))
 const GoalsPage = lazy(() => import('./pages/Goals').then((m) => ({ default: m.GoalsPage })))
 const SettingsPage = lazy(() => import('./pages/Settings').then((m) => ({ default: m.SettingsPage })))
 
@@ -16,6 +17,7 @@ const PAGES = [
   { hash: '#plan', label: 'Plan', element: <PlanPage /> },
   { hash: '#trends', label: 'Trends', element: <TrendsPage /> },
   { hash: '#goals', label: 'Goals', element: <GoalsPage /> },
+  { hash: '#research', label: 'Research', element: <ResearchPage /> },
   { hash: '#settings', label: 'Settings', element: <SettingsPage /> },
 ]
 
@@ -94,7 +96,7 @@ export default function App() {
   return (
     <div className="mx-auto min-h-screen max-w-5xl px-4 pt-[max(1rem,env(safe-area-inset-top))] pb-10">
       <header className="mb-4 flex items-center justify-between gap-3">
-        <nav className="-mx-1 flex min-w-0 gap-0.5 overflow-x-auto sm:gap-1">
+        <nav className="no-scrollbar -mx-1 flex min-w-0 gap-0.5 overflow-x-auto sm:gap-1">
           {PAGES.map((p) => (
             <a
               key={p.hash}

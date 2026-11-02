@@ -8,6 +8,13 @@ class Base(DeclarativeBase):
     pass
 
 
+FTS_TABLE = "evidence_fts"
+
+
+def include_object(_object: Any, name: str | None, type_: str, *_: Any) -> bool:
+    return not (type_ == "table" and name is not None and name.startswith(FTS_TABLE))
+
+
 def create_db_engine(url: str) -> Engine:
     engine = create_engine(url)
 

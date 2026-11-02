@@ -12,6 +12,7 @@ from sqlalchemy.orm import Session, sessionmaker
 from garmin_coach import raw_store
 from garmin_coach.config import get_settings
 from garmin_coach.db import create_db_engine, session_factory
+from garmin_coach.evidence.library import seed_topics
 from garmin_coach.garmin.connect import GarminConnectSource
 from garmin_coach.garmin.source import GarminAuthError, GarminRateLimited
 from garmin_coach.metrics.summary import format_metrics
@@ -29,6 +30,7 @@ def open_database() -> sessionmaker[Session]:
     sessions = session_factory(create_db_engine(settings.database_url))
     with sessions() as session:
         seed_sport_mapping(session)
+        seed_topics(session)
         session.commit()
     return sessions
 
@@ -145,12 +147,16 @@ def command_metrics(args: argparse.Namespace) -> None:
 
 
 def command_serve(args: argparse.Namespace) -> None:
+    import anthropic
     import uvicorn
 
     from garmin_coach.api.app import create_app
     from garmin_coach.coach.agent import Coach, anthropic_stream_factory, coach_settings
     from garmin_coach.coach.notify import Notifier
     from garmin_coach.coach.proactive import ProactiveCoach
+    from garmin_coach.evidence.fetch import EvidenceFetcher
+    from garmin_coach.evidence.pubmed import PubMed
+    from garmin_coach.evidence.summarize import Summarizer
     from garmin_coach.jobs import Schedule
 
     settings = get_settings()
@@ -167,6 +173,16 @@ def command_serve(args: argparse.Namespace) -> None:
         if key
         else None
     )
+    fetcher = (
+        EvidenceFetcher(
+            sessions,
+            PubMed(),
+            Summarizer(anthropic.Anthropic(api_key=key).messages.create, settings.background_model),
+            settings.monthly_budget_usd,
+        )
+        if key
+        else None
+    )
     app = create_app(
         sessions,
         lambda: sync_service(sessions),
@@ -174,8 +190,15 @@ def command_serve(args: argparse.Namespace) -> None:
         frontend_dir=settings.frontend_dir,
         schedule_sync=not args.no_schedule,
         proactive=proactive,
-        schedule=Schedule(settings.checkin_time, settings.review_day, settings.review_time),
+        schedule=Schedule(
+            settings.checkin_time,
+            settings.review_day,
+            settings.review_time,
+            settings.evidence_day,
+            settings.evidence_time,
+        ),
         notifier=notifier,
+        evidence_fetcher=fetcher,
     )
     uvicorn.run(app, host=args.host, port=args.port)
 

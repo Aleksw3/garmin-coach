@@ -367,3 +367,67 @@ export type Notifications = {
 export const fetchLatestCoach = () => request<LatestCoachMessage | null>('/api/coach/latest')
 export const fetchNotifications = () => request<Notifications>('/api/notifications')
 export const sendTestNotification = () => request<{ sent: boolean }>('/api/notifications/test', { method: 'POST' })
+
+export type EvidenceFields = {
+  claim: string
+  population: string
+  intervention: string
+  outcome: string
+  design: string
+  sample_size: number | null
+  effect: string
+  takeaway: string
+  limitations: string
+  notes: string | null
+}
+
+export type EvidenceEntry = EvidenceFields & {
+  id: number
+  topic_id: number | null
+  pmid: string
+  doi: string | null
+  title: string
+  authors: string
+  journal: string | null
+  year: number | null
+  abstract: string
+  publication_types: string
+  grade: string
+  status: 'pending' | 'approved' | 'rejected'
+  disputed_by_id: number | null
+  citation: string
+  created_at: string
+  reviewed_at: string | null
+}
+
+export type EvidenceTopicInput = { name: string; query: string; weekly_limit: number; active: boolean }
+
+export type EvidenceTopic = EvidenceTopicInput & {
+  id: number
+  last_fetched_at: string | null
+  approved: number
+  pending: number
+}
+
+export type EvidenceFetchStatus = {
+  running: boolean
+  available: boolean
+  last: { started_at: string; finished_at: string | null; added: number; errors: string[] } | null
+}
+
+export const fetchEvidence = (status: EvidenceEntry['status'], q = '') =>
+  request<EvidenceEntry[]>(`/api/evidence?status=${status}${q ? `&q=${encodeURIComponent(q)}` : ''}`)
+export const saveEvidence = (id: number, fields: EvidenceFields) =>
+  request<EvidenceEntry>(`/api/evidence/${id}`, json('PUT', fields))
+export const setEvidenceStatus = (id: number, status: EvidenceEntry['status']) =>
+  request<EvidenceEntry>(`/api/evidence/${id}/status`, json('POST', { status }))
+export const setDisputedBy = (id: number, disputedById: number | null) =>
+  request<EvidenceEntry>(`/api/evidence/${id}/disputed`, json('PUT', { disputed_by_id: disputedById }))
+export const fetchEvidenceTopics = () => request<EvidenceTopic[]>('/api/evidence/topics')
+export const createEvidenceTopic = (topic: EvidenceTopicInput) =>
+  request<EvidenceTopic>('/api/evidence/topics', json('POST', topic))
+export const updateEvidenceTopic = (id: number, topic: EvidenceTopicInput) =>
+  request<EvidenceTopic>(`/api/evidence/topics/${id}`, json('PUT', topic))
+export const deleteEvidenceTopic = (id: number) => send(`/api/evidence/topics/${id}`, { method: 'DELETE' })
+export const fetchEvidenceStatus = () => request<EvidenceFetchStatus>('/api/evidence/fetch')
+export const startEvidenceFetch = () => request<EvidenceFetchStatus>('/api/evidence/fetch', { method: 'POST' })

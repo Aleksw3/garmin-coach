@@ -6,6 +6,7 @@ from dataclasses import dataclass
 from apscheduler.schedulers.background import BackgroundScheduler
 
 from garmin_coach.coach.proactive import ProactiveCoach
+from garmin_coach.evidence.fetch import EvidenceFetcher
 from garmin_coach.garmin.source import GarminAuthError, GarminError
 from garmin_coach.sync import SyncService
 
@@ -62,6 +63,8 @@ class Schedule:
     checkin_time: str = "06:30"
     review_day: str = "sun"
     review_time: str = "19:00"
+    evidence_day: str = "mon"
+    evidence_time: str = "07:00"
 
 
 DEFAULT_SCHEDULE = Schedule()
@@ -76,6 +79,7 @@ def start_scheduler(
     runner: SyncRunner,
     proactive: ProactiveCoach | None = None,
     schedule: Schedule = DEFAULT_SCHEDULE,
+    fetcher: EvidenceFetcher | None = None,
 ) -> BackgroundScheduler:
     scheduler = BackgroundScheduler()
     scheduler.add_job(
@@ -94,6 +98,16 @@ def start_scheduler(
             hour=hour,
             minute=minute,
             id="weekly_review",
+        )
+    if fetcher is not None:
+        hour, minute = hour_minute(schedule.evidence_time)
+        scheduler.add_job(
+            fetcher.fetch_all,
+            "cron",
+            day_of_week=schedule.evidence_day,
+            hour=hour,
+            minute=minute,
+            id="evidence_fetch",
         )
     scheduler.start()
     return scheduler

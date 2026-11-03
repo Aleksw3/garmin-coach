@@ -1,5 +1,6 @@
 from collections.abc import Callable, Iterator
 from contextlib import contextmanager
+from dataclasses import dataclass
 from datetime import date
 from pathlib import Path
 from typing import Any
@@ -49,6 +50,44 @@ def translated_errors() -> Iterator[None]:
         raise GarminError(str(e)) from e
 
 
+def prepare_tokens_dir(tokens_dir: Path) -> None:
+    tokens_dir.mkdir(parents=True, exist_ok=True)
+    tokens_dir.chmod(0o700)
+
+
+def has_tokens(tokens_dir: Path) -> bool:
+    return tokens_dir.is_dir() and any(tokens_dir.iterdir())
+
+
+@dataclass
+class PendingLogin:
+    client: Garmin
+    state: Any
+
+
+class GarminWebLogin:
+    """Logs in from a web form, where the two-step code arrives in a second request."""
+
+    def start(self, tokens_dir: Path, email: str, password: str) -> PendingLogin | None:
+        client = Garmin(email, password, return_on_mfa=True)
+        with translated_errors():
+            status, state = client.login()
+        if status == "needs_mfa":
+            return PendingLogin(client, state)
+        self._save(client, tokens_dir)
+        return None
+
+    def finish(self, pending: PendingLogin, code: str, tokens_dir: Path) -> None:
+        with translated_errors():
+            pending.client.resume_login(pending.state, code)
+        self._save(pending.client, tokens_dir)
+
+    def _save(self, client: Garmin, tokens_dir: Path) -> None:
+        prepare_tokens_dir(tokens_dir)
+        client.client.dump(str(tokens_dir))
+        GarminConnectSource(tokens_dir).login()
+
+
 class GarminConnectSource:
     def __init__(
         self,
@@ -73,8 +112,7 @@ class GarminConnectSource:
         self._client = self._login()
 
     def _login(self) -> Garmin:
-        self.tokens_dir.mkdir(parents=True, exist_ok=True)
-        self.tokens_dir.chmod(0o700)
+        prepare_tokens_dir(self.tokens_dir)
         client = Garmin(self.email, self.password, prompt_mfa=self.prompt_mfa)
         with translated_errors():
             client.login(str(self.tokens_dir))

@@ -1,7 +1,16 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { useState, type FormEvent } from 'react'
-import { fetchNotifications, fetchUsage, saveTopic, sendTestNotification, type Usage } from '../api'
+import {
+  currentProfile,
+  fetchClaude,
+  fetchNotifications,
+  fetchUsage,
+  saveTopic,
+  sendTestNotification,
+  type Usage,
+} from '../api'
 import { Card, DataTable } from '../components/Card'
+import { ClaudeForm, GarminStatus, KeyHelp } from '../components/Setup'
 import { number } from '../format'
 
 const WARN_SHARE = 0.8
@@ -124,6 +133,38 @@ function NotificationsCard() {
   )
 }
 
+function ClaudeCard({ usage }: { usage: Usage }) {
+  const claude = useQuery({ queryKey: ['claude'], queryFn: fetchClaude })
+  const data = claude.data
+  return (
+    <Card title="Claude" subtitle="The API key and monthly budget, shared by everyone">
+      <dl className="mb-3 grid grid-cols-[auto_1fr] gap-x-4 gap-y-1 text-sm">
+        <dt className="text-muted">API key</dt>
+        <dd className={data?.key_set ? 'text-primary' : 'text-warning'}>
+          {!data
+            ? '–'
+            : data.key_set
+              ? `ends in ${data.key_hint}, ${data.source === 'env' ? 'from .env' : 'saved in the app'}`
+              : '▲ None yet, the coach is off'}
+        </dd>
+        <dt className="text-muted">Chat and weekly review</dt>
+        <dd className="text-primary">{usage.chat_model}</dd>
+        <dt className="text-muted">Plan building</dt>
+        <dd className="text-primary">{usage.plan_model}</dd>
+        <dt className="text-muted">Check-ins, feedback, papers</dt>
+        <dd className="text-primary">{usage.background_model}</dd>
+      </dl>
+      {data && !data.key_set && (
+        <div className="mb-3">
+          <KeyHelp />
+        </div>
+      )}
+      {data && <ClaudeForm key={`${data.key_hint}-${data.monthly_budget_usd}`} claude={data} />}
+      {claude.error && <p className="text-xs text-critical">{claude.error.message}</p>}
+    </Card>
+  )
+}
+
 export function SettingsPage() {
   const usage = useQuery({ queryKey: ['usage'], queryFn: fetchUsage })
   if (usage.isPending) return <p className="text-sm text-muted">Loading…</p>
@@ -134,19 +175,12 @@ export function SettingsPage() {
       <Card title="API cost this month" subtitle="Claude API spending for everyone against the shared monthly budget">
         <BudgetMeter usage={data} />
       </Card>
-      <Card title="Coach settings" subtitle="Change these in .env at the repo root, then restart">
-        <dl className="grid grid-cols-[auto_1fr] gap-x-4 gap-y-1 text-sm">
-          <dt className="text-muted">Chat and weekly review</dt>
-          <dd className="text-primary">{data.chat_model}</dd>
-          <dt className="text-muted">Plan building</dt>
-          <dd className="text-primary">{data.plan_model}</dd>
-          <dt className="text-muted">Check-ins and feedback</dt>
-          <dd className="text-primary">{data.background_model}</dd>
-          <dt className="text-muted">Monthly budget</dt>
-          <dd className="text-primary">
-            {dollars(data.budget_usd)} <span className="text-xs text-muted">MONTHLY_BUDGET_USD</span>
-          </dd>
-        </dl>
+      <ClaudeCard usage={data} />
+      <Card title="Garmin" subtitle="This person's Garmin Connect login and history">
+        <GarminStatus slug={currentProfile() ?? ''} />
+        <a href="#add-person" className="mt-4 inline-block text-sm text-accent">
+          Add another person
+        </a>
       </Card>
       <NotificationsCard />
       <Card title="Recent API calls" subtitle="Cache reads cost a tenth of normal input or less" className="lg:col-span-2">

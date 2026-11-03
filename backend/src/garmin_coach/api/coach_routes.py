@@ -357,14 +357,13 @@ def latest_coach_message(session: SessionDep) -> LatestCoachMessageOut | None:
 def notifications_out(request: Request, profile: ProfileRuntime) -> NotificationsOut:
     schedule = request.app.state.schedule
     notifier = profile.notifier
+    coached = profile.proactive is not None and profile.coach.ready
     return NotificationsOut(
         enabled=notifier.enabled,
         url=notifier.url,
         topic=notifier.topic,
-        checkin_time=schedule.checkin_time if schedule and profile.proactive else None,
-        review=f"{schedule.review_day} {schedule.review_time}"
-        if schedule and profile.proactive
-        else None,
+        checkin_time=schedule.checkin_time if schedule and coached else None,
+        review=f"{schedule.review_day} {schedule.review_time}" if schedule and coached else None,
     )
 
 

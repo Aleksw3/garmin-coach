@@ -104,11 +104,13 @@ def design_for(paper: Paper, model_design: str) -> str:
 
 
 class Summarizer:
-    def __init__(self, create: Callable[..., Any], model: str) -> None:
+    def __init__(self, create: Callable[..., Any] | None, model: str) -> None:
         self.create = create
         self.model = model
 
     def summarize(self, paper: Paper) -> tuple[Summary, Any]:
+        if self.create is None:
+            raise RuntimeError("No Anthropic API key")
         response = self.create(
             model=self.model,
             max_tokens=4000,

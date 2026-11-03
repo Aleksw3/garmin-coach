@@ -143,8 +143,8 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
   const response = await fetch(path, withProfile(init))
   if (!response.ok) {
     const body = (await response.json().catch(() => null)) as { detail?: unknown } | null
-    const detail = typeof body?.detail === 'string' ? `: ${body.detail}` : ''
-    throw new Error(`${init?.method ?? 'GET'} ${path} failed with ${response.status}${detail}`)
+    if (typeof body?.detail === 'string') throw new Error(body.detail)
+    throw new Error(`${init?.method ?? 'GET'} ${path} failed with ${response.status}`)
   }
   return response.json() as Promise<T>
 }
@@ -530,3 +530,33 @@ export type ProfileSummary = { slug: string; name: string }
 export const fetchProfiles = () => request<ProfileSummary[]>('/api/profiles')
 export const saveTopic = (topic: string | null) =>
   request<Notifications>('/api/notifications', json('PUT', { topic }))
+export const addProfile = (name: string, trimp_coefficient: number) =>
+  request<ProfileSummary>('/api/profiles', json('POST', { name, trimp_coefficient }))
+
+export type Claude = {
+  available: boolean
+  key_set: boolean
+  key_hint: string | null
+  source: 'app' | 'env' | null
+  monthly_budget_usd: number | null
+}
+
+export const fetchClaude = () => request<Claude>('/api/claude')
+export const saveClaude = (settings: { api_key?: string; monthly_budget_usd?: number }) =>
+  request<Claude>('/api/claude', json('PUT', settings))
+
+export type Garmin = {
+  connected: boolean
+  waiting_for_code: boolean
+  syncing: boolean
+  backfill: { days: number; started_at: string } | null
+  backfill_reached: string | null
+  oldest_activity: string | null
+  last_sync: string | null
+}
+
+export const fetchGarmin = () => request<Garmin>('/api/garmin')
+export const garminLogin = (email: string, password: string) =>
+  request<Garmin>('/api/garmin/login', json('POST', { email, password }))
+export const garminCode = (code: string) => request<Garmin>('/api/garmin/code', json('POST', { code }))
+export const startBackfill = (days: number) => request<Garmin>('/api/garmin/backfill', json('POST', { days }))

@@ -98,6 +98,10 @@ class Coach:
         self.now = now
         self._lock = threading.Lock()
 
+    @property
+    def ready(self) -> bool:
+        return self.stream_factory is not None
+
     def research_session(self) -> AbstractContextManager[Session | None]:
         return nullcontext() if self.research is None else self.research()
 
@@ -110,7 +114,7 @@ class Coach:
         wait: bool = False,
     ) -> Iterator[Event]:
         if self.stream_factory is None:
-            yield error("No Anthropic API key. Set ANTHROPIC_API_KEY in .env and restart.")
+            yield error("No Anthropic API key yet. Add one on the Settings page.")
             return
         if not self._lock.acquire(timeout=LOCK_WAIT_S if wait else 0):
             yield error("The coach is already answering. Wait for that reply to finish.")

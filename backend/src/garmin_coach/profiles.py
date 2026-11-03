@@ -1,5 +1,6 @@
 import re
 import sqlite3
+import unicodedata
 from pathlib import Path
 
 from sqlalchemy import select
@@ -16,6 +17,7 @@ from garmin_coach.normalize.sports import seed_sport_mapping
 SLUG = re.compile(r"[a-z0-9][a-z0-9-]{0,31}")
 SHARED_TABLES = ("evidence_topic", "evidence")
 SHARED_STATE = (LAST_FETCH, TOPICS_SEEDED)
+LETTERS = str.maketrans({"æ": "ae", "ø": "o", "ß": "ss", "þ": "th", "ð": "d", "đ": "d", "ł": "l"})
 
 
 class ProfileError(ValueError):
@@ -25,6 +27,16 @@ class ProfileError(ValueError):
 def check_slug(slug: str) -> str:
     if not SLUG.fullmatch(slug):
         raise ProfileError(f"Profile names use lowercase letters, digits and dashes, not {slug!r}")
+    return slug
+
+
+def slug_for(name: str, taken: set[str]) -> str:
+    plain = unicodedata.normalize("NFKD", name.lower().translate(LETTERS))
+    base = re.sub(r"[^a-z0-9]+", "-", plain.encode("ascii", "ignore").decode()).strip("-")
+    base = base[:28].strip("-") or "person"
+    slug, number = base, 2
+    while slug in taken:
+        slug, number = f"{base}-{number}", number + 1
     return slug
 
 
@@ -56,6 +68,7 @@ def open_profile(settings: Settings, slug: str) -> sessionmaker[Session]:
 
 def open_research(settings: Settings) -> sessionmaker[Session]:
     sessions = open_sessions(settings.research_database_path)
+    settings.research_database_path.chmod(0o600)
     with sessions() as session:
         seed_topics(session)
         session.commit()

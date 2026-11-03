@@ -205,7 +205,7 @@ def fetch_status(session: ResearchDep, fetcher: EvidenceFetcher | None) -> Fetch
     last = get_state(session, LAST_FETCH)
     return FetchStatusOut(
         running=fetcher.running if fetcher else False,
-        available=fetcher is not None,
+        available=fetcher is not None and fetcher.ready,
         last=json.loads(last) if last else None,
     )
 
@@ -218,7 +218,7 @@ def get_fetch(session: ResearchDep, request: Request) -> FetchStatusOut:
 @router.post("/fetch", response_model=FetchStatusOut)
 def start_fetch(session: ResearchDep, request: Request) -> FetchStatusOut:
     fetcher = get_fetcher(request)
-    if fetcher is None:
-        raise HTTPException(409, "Fetching needs ANTHROPIC_API_KEY in .env for the summaries")
+    if fetcher is None or not fetcher.ready:
+        raise HTTPException(409, "Fetching needs an Anthropic API key for the summaries")
     fetcher.start_in_background()
     return fetch_status(session, fetcher)

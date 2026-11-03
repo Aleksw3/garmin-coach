@@ -67,6 +67,8 @@ class ProactiveCoach:
             return conversation.id
 
     def _run(self, purpose: str, label: str, prompt: str, title: str) -> str | None:
+        if not self.coach.ready:
+            return None
         answer = ""
         for event in self.coach.reply(self.thread(), prompt, purpose, label=label, wait=True):
             if event["type"] == "text":
@@ -100,6 +102,8 @@ class ProactiveCoach:
         )
 
     def activity_feedback(self) -> list[str]:
+        if not self.coach.ready:
+            return []
         since = self.now() - self.feedback_window
         with self.sessions() as session:
             done = set(session.scalars(select(ActivityFeedback.activity_id)))

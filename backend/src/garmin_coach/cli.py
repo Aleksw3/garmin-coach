@@ -11,6 +11,7 @@ from sqlalchemy import func, select
 from sqlalchemy.orm import Session, sessionmaker
 
 from garmin_coach import raw_store
+from garmin_coach.claude_settings import read_claude_settings
 from garmin_coach.config import get_settings
 from garmin_coach.garmin.connect import GarminConnectSource
 from garmin_coach.garmin.source import GarminAuthError, GarminRateLimited
@@ -22,7 +23,6 @@ from garmin_coach.normalize.sports import unmapped_type_keys
 from garmin_coach.profiles import (
     ProfileError,
     adopt_single_database,
-    athlete,
     create_profile,
     open_profile,
     open_research,
@@ -219,12 +219,13 @@ def command_structure_sessions(args: argparse.Namespace) -> None:
     from garmin_coach.coach.structure import SessionStructurer, unstructured
 
     settings = get_settings()
-    if not settings.anthropic_api_key:
-        print("Set ANTHROPIC_API_KEY in .env first", file=sys.stderr)
+    with open_research(settings)() as session:
+        api_key = read_claude_settings(session, settings).api_key
+    if not api_key:
+        print("Add an Anthropic API key on the Settings page first", file=sys.stderr)
         return
     structurer = SessionStructurer(
-        anthropic.Anthropic(api_key=settings.anthropic_api_key).messages.create,
-        settings.background_model,
+        anthropic.Anthropic(api_key=api_key).messages.create, settings.background_model
     )
     sessions = open_database(args)
     with sessions() as session:
@@ -240,64 +241,19 @@ def command_structure_sessions(args: argparse.Namespace) -> None:
 
 
 def command_serve(args: argparse.Namespace) -> None:
-    import anthropic
     import uvicorn
 
     from garmin_coach.api.app import create_app
-    from garmin_coach.api.profile import ProfileRuntime, make_profile
-    from garmin_coach.coach.agent import Coach, anthropic_stream_factory, coach_settings
-    from garmin_coach.coach.notify import Notifier, ProfileNotifier
-    from garmin_coach.coach.proactive import ProactiveCoach
-    from garmin_coach.coach.usage import Spending
-    from garmin_coach.evidence.fetch import EvidenceFetcher
-    from garmin_coach.evidence.pubmed import PubMed
-    from garmin_coach.evidence.summarize import Summarizer
+    from garmin_coach.household import Household
     from garmin_coach.jobs import Schedule
 
     settings = get_settings()
-    slugs = profile_slugs(settings)
-    if not slugs:
+    if not profile_slugs(settings) and settings.single_database_path.exists():
         chosen_profile(args)
-    research = open_research(settings)
-    databases = {slug: open_profile(settings, slug) for slug in slugs}
-    spending = Spending([research, *databases.values()])
-    key = settings.anthropic_api_key
-    stream_factory = anthropic_stream_factory(key) if key else None
-    base_notifier = Notifier(settings.ntfy_url, None, settings.ntfy_token, settings.app_url)
-
-    def runtime(slug: str, sessions: sessionmaker[Session]) -> ProfileRuntime:
-        def read_topic() -> str | None:
-            with sessions() as session:
-                return athlete(session).ntfy_topic
-
-        coach = Coach(
-            sessions,
-            stream_factory,
-            coach_settings(settings),
-            research=research,
-            spending=spending,
-        )
-        notifier = ProfileNotifier(base_notifier, slug, read_topic)
-        window = timedelta(hours=settings.feedback_window_hours)
-        proactive = ProactiveCoach(sessions, coach, notifier, window) if key else None
-        return make_profile(
-            slug, sessions, lambda: sync_service(slug, sessions), coach, proactive, notifier
-        )
-
-    fetcher = (
-        EvidenceFetcher(
-            research,
-            PubMed(),
-            Summarizer(anthropic.Anthropic(api_key=key).messages.create, settings.background_model),
-            settings.monthly_budget_usd,
-            spending=spending,
-        )
-        if key
-        else None
-    )
+    household = Household(settings, open_research(settings), sync_service)
     app = create_app(
-        [runtime(slug, sessions) for slug, sessions in databases.items()],
-        research,
+        household.open_all(),
+        household.research,
         frontend_dir=settings.frontend_dir,
         schedule_sync=not args.no_schedule,
         schedule=Schedule(
@@ -307,7 +263,7 @@ def command_serve(args: argparse.Namespace) -> None:
             settings.evidence_day,
             settings.evidence_time,
         ),
-        evidence_fetcher=fetcher,
+        household=household,
     )
     uvicorn.run(app, host=args.host, port=args.port)
 

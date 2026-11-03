@@ -8,6 +8,7 @@ from sqlalchemy.orm import Session, sessionmaker
 from garmin_coach.coach.agent import Coach
 from garmin_coach.coach.notify import NO_NOTIFIER, Sender
 from garmin_coach.coach.proactive import ProactiveCoach
+from garmin_coach.garmin.connect import PendingLogin
 from garmin_coach.jobs import SyncRunner
 from garmin_coach.sync import SyncService
 
@@ -22,6 +23,7 @@ class ProfileRuntime:
     runner: SyncRunner
     notifier: Sender
     proactive: ProactiveCoach | None = None
+    pending_login: PendingLogin | None = None
 
 
 def make_profile(
@@ -37,7 +39,7 @@ def make_profile(
         on_synced=proactive.activity_feedback if proactive else None,
         on_auth_failed=lambda error: notifier.send(
             "Garmin login failed",
-            f"The sync could not log in to Garmin: {error}. Run coach --profile {slug} login.",
+            f"The sync could not log in to Garmin: {error}. Log in again on the Settings page.",
             "#settings",
         ),
     )

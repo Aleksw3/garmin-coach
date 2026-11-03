@@ -1,6 +1,7 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { Suspense, lazy, useEffect, useState } from 'react'
 import { chooseProfile, currentProfile, fetchProfiles, fetchSyncStatus, startSync, type ProfileSummary } from './api'
+import { SetupWizard } from './components/Setup'
 import { TodayPage } from './pages/Today'
 
 const TrendsPage = lazy(() => import('./pages/Trends').then((m) => ({ default: m.TrendsPage })))
@@ -22,6 +23,7 @@ const PAGES = [
 ]
 
 const ACTIVITY_HASH = /^#activity\/(\d+)$/
+const ADD_PERSON = '#add-person'
 
 function pageElement(page: string) {
   const activity = ACTIVITY_HASH.exec(page)
@@ -32,7 +34,7 @@ function pageElement(page: string) {
 function useHashPage(): string {
   const read = () => {
     const hash = window.location.hash
-    return PAGES.some((p) => p.hash === hash) || ACTIVITY_HASH.test(hash) ? hash : '#today'
+    return PAGES.some((p) => p.hash === hash) || ACTIVITY_HASH.test(hash) || hash === ADD_PERSON ? hash : '#today'
   }
   const [page, setPage] = useState(read)
   useEffect(() => {
@@ -120,11 +122,16 @@ function ProfilePicker({
         ))}
       </ul>
       <p className="text-xs text-muted">Each person has their own data, plan and coach. Research papers are shared.</p>
-      {onCancel && (
-        <button type="button" onClick={onCancel} className="self-start text-sm text-secondary">
-          Cancel
-        </button>
-      )}
+      <div className="flex gap-4">
+        <a href={ADD_PERSON} className="text-sm text-accent">
+          Add a person
+        </a>
+        {onCancel && (
+          <button type="button" onClick={onCancel} className="text-sm text-secondary">
+            Cancel
+          </button>
+        )}
+      </div>
     </div>
   )
 }
@@ -139,8 +146,8 @@ export default function App() {
   const active = list?.length === 1 ? list[0] : list?.find((profile) => profile.slug === chosen)
 
   useEffect(() => {
-    if (active && active.slug !== currentProfile()) chooseProfile(active.slug)
-  }, [active])
+    if (active && page !== ADD_PERSON && active.slug !== currentProfile()) chooseProfile(active.slug)
+  }, [active, page])
 
   const choose = (slug: string) => {
     chooseProfile(slug)
@@ -150,10 +157,26 @@ export default function App() {
     window.location.hash = '#today'
   }
 
+  const finishSetup = async (slug: string) => {
+    await queryClient.invalidateQueries({ queryKey: ['profiles'] })
+    choose(slug)
+  }
+
   if (profiles.error) {
     return <p className="p-4 text-sm text-critical">{profiles.error.message}</p>
   }
   if (!list) return null
+  if (list.length === 0 || page === ADD_PERSON) {
+    return (
+      <div className="px-4">
+        <SetupWizard
+          firstRun={list.length === 0}
+          onDone={(slug) => void finishSetup(slug)}
+          onCancel={list.length > 0 ? () => (window.location.hash = active ? '#settings' : '') : undefined}
+        />
+      </div>
+    )
+  }
   if (!active || picking) {
     return (
       <div className="px-4">

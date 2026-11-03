@@ -2,6 +2,7 @@ import logging
 import threading
 from collections.abc import Callable
 from dataclasses import dataclass
+from datetime import datetime
 
 from apscheduler.schedulers.background import BackgroundScheduler
 
@@ -17,6 +18,12 @@ SYNC_MINUTE = 5
 SYNC_SPACING_MIN = 10
 
 
+@dataclass(frozen=True)
+class Backfill:
+    days: int
+    started_at: datetime
+
+
 class SyncRunner:
     def __init__(
         self,
@@ -27,25 +34,30 @@ class SyncRunner:
         self.make_service = make_service
         self.on_synced = on_synced
         self.on_auth_failed = on_auth_failed
+        self.backfill: Backfill | None = None
         self._lock = threading.Lock()
 
     @property
     def running(self) -> bool:
         return self._lock.locked()
 
-    def run_recent(self) -> bool:
-        if not self._lock.acquire(blocking=False):
-            return False
-        synced = False
+    def _guarded(self, work: Callable[[SyncService], object]) -> bool:
         try:
-            self.make_service().sync_recent()
-            synced = True
+            work(self.make_service())
+            return True
         except GarminAuthError as error:
             log.exception("Garmin login failed")
             if self.on_auth_failed:
                 self.on_auth_failed(str(error))
         except GarminError:
-            log.exception("Scheduled sync failed")
+            log.exception("Sync failed")
+        return False
+
+    def run_recent(self) -> bool:
+        if not self._lock.acquire(blocking=False):
+            return False
+        try:
+            synced = self._guarded(lambda service: service.sync_recent())
         finally:
             self._lock.release()
         if synced and self.on_synced:
@@ -57,6 +69,20 @@ class SyncRunner:
             return False
         threading.Thread(target=self.run_recent, daemon=True).start()
         return True
+
+    def start_backfill(self, days: int) -> bool:
+        if not self._lock.acquire(blocking=False):
+            return False
+        self.backfill = Backfill(days, datetime.now())
+        threading.Thread(target=self._run_backfill, args=(days,), daemon=True).start()
+        return True
+
+    def _run_backfill(self, days: int) -> None:
+        try:
+            self._guarded(lambda service: service.backfill(days))
+        finally:
+            self.backfill = None
+            self._lock.release()
 
 
 @dataclass(frozen=True)
@@ -83,6 +109,40 @@ class ScheduledProfile:
     proactive: ProactiveCoach | None = None
 
 
+def schedule_profile(
+    scheduler: BackgroundScheduler,
+    profile: ScheduledProfile,
+    index: int,
+    schedule: Schedule = DEFAULT_SCHEDULE,
+) -> None:
+    scheduler.add_job(
+        profile.runner.run_recent,
+        "cron",
+        hour=SYNC_HOURS,
+        minute=(SYNC_MINUTE + index * SYNC_SPACING_MIN) % 60,
+        id=f"recent_sync_{profile.slug}",
+    )
+    if profile.proactive is None:
+        return
+    hour, minute = hour_minute(schedule.checkin_time)
+    scheduler.add_job(
+        profile.proactive.morning_checkin,
+        "cron",
+        hour=hour,
+        minute=minute,
+        id=f"morning_checkin_{profile.slug}",
+    )
+    hour, minute = hour_minute(schedule.review_time)
+    scheduler.add_job(
+        profile.proactive.weekly_review,
+        "cron",
+        day_of_week=schedule.review_day,
+        hour=hour,
+        minute=minute,
+        id=f"weekly_review_{profile.slug}",
+    )
+
+
 def start_scheduler(
     profiles: list[ScheduledProfile],
     schedule: Schedule = DEFAULT_SCHEDULE,
@@ -90,32 +150,7 @@ def start_scheduler(
 ) -> BackgroundScheduler:
     scheduler = BackgroundScheduler()
     for index, profile in enumerate(profiles):
-        scheduler.add_job(
-            profile.runner.run_recent,
-            "cron",
-            hour=SYNC_HOURS,
-            minute=(SYNC_MINUTE + index * SYNC_SPACING_MIN) % 60,
-            id=f"recent_sync_{profile.slug}",
-        )
-        if profile.proactive is None:
-            continue
-        hour, minute = hour_minute(schedule.checkin_time)
-        scheduler.add_job(
-            profile.proactive.morning_checkin,
-            "cron",
-            hour=hour,
-            minute=minute,
-            id=f"morning_checkin_{profile.slug}",
-        )
-        hour, minute = hour_minute(schedule.review_time)
-        scheduler.add_job(
-            profile.proactive.weekly_review,
-            "cron",
-            day_of_week=schedule.review_day,
-            hour=hour,
-            minute=minute,
-            id=f"weekly_review_{profile.slug}",
-        )
+        schedule_profile(scheduler, profile, index, schedule)
     if fetcher is not None:
         hour, minute = hour_minute(schedule.evidence_time)
         scheduler.add_job(

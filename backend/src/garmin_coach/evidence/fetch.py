@@ -51,6 +51,10 @@ class EvidenceFetcher:
     def running(self) -> bool:
         return self._lock.locked()
 
+    @property
+    def ready(self) -> bool:
+        return self.summarizer.create is not None
+
     def start_in_background(self) -> bool:
         if self.running:
             return False
@@ -121,7 +125,7 @@ class EvidenceFetcher:
             session.commit()
 
     def fetch_all(self) -> FetchResult | None:
-        if not self._lock.acquire(blocking=False):
+        if not self.ready or not self._lock.acquire(blocking=False):
             return None
         result = FetchResult(started_at=self.now().isoformat(timespec="seconds"))
         try:

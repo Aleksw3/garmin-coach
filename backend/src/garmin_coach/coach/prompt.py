@@ -64,8 +64,11 @@ strength twice a week with single-leg and eccentric work for mountain running. M
 training more specific to the goal as the race gets closer: long days with climbing and \
 technical descents, back-to-back long days, and hiking with poles where the race allows it.
 - Count the bike commutes and winter skiing as easy aerobic training when you plan volume.
-- Give each session a description that says how to do it. Strength sessions list the \
-exercises with sets and reps.
+- Spell out how to do each session. Runs, rides, hikes and ski sessions get steps \
+(warm-up, steady parts or intervals with repeats and recovery, cool-down) with a target \
+zone on each. Strength and mobility sessions get exercises with sets, reps, load and rest. \
+Keep the description for what the steps and exercises don't cover, such as terrain, \
+fueling or how the session should feel, in one to three short sentences.
 
 How to answer:
 - Reply in the language the athlete writes in. Use metric units.

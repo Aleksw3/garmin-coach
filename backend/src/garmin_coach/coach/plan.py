@@ -20,6 +20,39 @@ class PlanError(ValueError):
     pass
 
 
+class Step(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    kind: Literal["warmup", "steady", "intervals", "cooldown"]
+    duration_min: float | None = Field(
+        default=None, gt=0, le=600, description="For intervals, the length of one repeat"
+    )
+    distance_km: float | None = Field(
+        default=None, gt=0, le=100, description="For intervals, the length of one repeat"
+    )
+    repeats: int | None = Field(default=None, ge=1, le=50, description="Only for intervals")
+    target: str | None = Field(
+        default=None, max_length=100, description="HR zone or effort, for example Z2 or Z3"
+    )
+    recovery: str | None = Field(
+        default=None, max_length=100, description="Between repeats, for example 2 min jog down"
+    )
+    note: str | None = Field(default=None, max_length=300)
+
+
+class Exercise(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    name: str = Field(min_length=1, max_length=100)
+    sets: int = Field(ge=1, le=20)
+    reps: str = Field(min_length=1, max_length=40, description="For example 8, 8/leg or 20 s/side")
+    load: str | None = Field(
+        default=None, max_length=60, description="For example 60 kg, bodyweight or 2x10 kg"
+    )
+    rest_s: int | None = Field(default=None, ge=0, le=600, description="Rest between sets")
+    note: str | None = Field(default=None, max_length=200)
+
+
 class SessionSpec(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
@@ -35,8 +68,18 @@ class SessionSpec(BaseModel):
     intensity: str | None = Field(
         default=None, max_length=200, description="HR zone or effort, for example Z2 or 6x3 min Z4"
     )
+    steps: list[Step] = Field(
+        default=[],
+        max_length=12,
+        description="The parts of a run, ride, hike or ski session in order. Empty for strength",
+    )
+    exercises: list[Exercise] = Field(
+        default=[], max_length=20, description="Strength and mobility exercises in order"
+    )
     description: str | None = Field(
-        default=None, max_length=2000, description="How to do it, and exercises for strength"
+        default=None,
+        max_length=2000,
+        description="Short notes the steps and exercises don't cover, such as terrain or fueling",
     )
 
 
@@ -211,6 +254,48 @@ def session_targets(row: PlannedSession | SessionSpec) -> str:
     if row.intensity:
         parts.append(row.intensity)
     return ", ".join(parts)
+
+
+def amount(duration_min: float | None, distance_km: float | None) -> str:
+    parts = []
+    if duration_min:
+        parts.append(f"{duration_min:g} min")
+    if distance_km:
+        parts.append(f"{distance_km:g} km")
+    return " or ".join(parts)
+
+
+def step_text(step: Step) -> str:
+    size = amount(step.duration_min, step.distance_km)
+    if step.repeats:
+        size = f"{step.repeats}x {size}".strip()
+    parts = [step.kind, size, step.target]
+    if step.recovery:
+        parts.append(f"recovery {step.recovery}")
+    parts.append(step.note)
+    return " ".join(part for part in parts if part)
+
+
+def exercise_text(exercise: Exercise) -> str:
+    text = f"{exercise.name} {exercise.sets}x{exercise.reps}"
+    if exercise.load:
+        text += f" @ {exercise.load}"
+    if exercise.rest_s:
+        text += f", rest {exercise.rest_s} s"
+    if exercise.note:
+        text += f" ({exercise.note})"
+    return text
+
+
+def session_structure(row: PlannedSession | SessionSpec) -> str | None:
+    steps = [step_text(Step.model_validate(step)) for step in row.steps or []]
+    exercises = [exercise_text(Exercise.model_validate(e)) for e in row.exercises or []]
+    parts = []
+    if steps:
+        parts.append("steps: " + "; ".join(steps))
+    if exercises:
+        parts.append("exercises: " + "; ".join(exercises))
+    return " | ".join(parts) or None
 
 
 def sessions_between(session: Session, first: date, last: date) -> list[PlannedSession]:

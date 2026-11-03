@@ -16,6 +16,7 @@ from garmin_coach.coach.plan import (
     ProposalBody,
     create_proposal,
     pending_proposals,
+    session_structure,
     session_targets,
     sessions_between,
 )
@@ -434,6 +435,7 @@ def plan_lines(ctx: ToolContext, args: DateRange) -> list[str]:
                     row.title,
                     session_targets(row),
                     session_status(row, matches.get(row.id), ctx.today),
+                    session_structure(row),
                     row.description,
                 ]
             )

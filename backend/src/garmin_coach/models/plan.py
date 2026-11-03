@@ -1,6 +1,8 @@
 from datetime import date, datetime
+from typing import Any
 
 from sqlalchemy import (
+    JSON,
     BigInteger,
     Boolean,
     Date,
@@ -41,6 +43,8 @@ class PlannedSession(Base):
     distance_km: Mapped[float | None] = mapped_column(Float)
     elevation_gain_m: Mapped[float | None] = mapped_column(Float)
     intensity: Mapped[str | None] = mapped_column(String(200))
+    steps: Mapped[list[Any]] = mapped_column(JSON, default=list, server_default="[]")
+    exercises: Mapped[list[Any]] = mapped_column(JSON, default=list, server_default="[]")
     description: Mapped[str | None] = mapped_column(Text)
     skipped: Mapped[bool] = mapped_column(Boolean, default=False)
 

@@ -146,6 +146,32 @@ def command_metrics(args: argparse.Namespace) -> None:
         print(format_metrics(session, args.weeks, args.end, get_settings().trimp_coefficient))
 
 
+def command_structure_sessions(args: argparse.Namespace) -> None:
+    import anthropic
+
+    from garmin_coach.coach.structure import SessionStructurer, unstructured
+
+    settings = get_settings()
+    if not settings.anthropic_api_key:
+        print("Set ANTHROPIC_API_KEY in .env first", file=sys.stderr)
+        return
+    structurer = SessionStructurer(
+        anthropic.Anthropic(api_key=settings.anthropic_api_key).messages.create,
+        settings.background_model,
+    )
+    sessions = open_database()
+    with sessions() as session:
+        rows = unstructured(session)
+        for row in rows:
+            result = structurer.apply(session, row)
+            print(
+                f"{row.day} {row.title}: {len(result.steps)} steps, "
+                f"{len(result.exercises)} exercises"
+            )
+            session.commit()
+    print(f"Structured {len(rows)} sessions")
+
+
 def command_serve(args: argparse.Namespace) -> None:
     import anthropic
     import uvicorn
@@ -238,6 +264,11 @@ def build_parser() -> argparse.ArgumentParser:
     serve.add_argument("--port", type=int, default=8000)
     serve.add_argument("--no-schedule", action="store_true", help="don't sync on a schedule")
     serve.set_defaults(run=command_serve)
+
+    structure = commands.add_parser(
+        "structure-sessions", help="split old session texts into steps and exercises"
+    )
+    structure.set_defaults(run=command_structure_sessions)
 
     status = commands.add_parser("status", help="database and sync status")
     status.set_defaults(run=command_status)

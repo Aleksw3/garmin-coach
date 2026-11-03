@@ -229,6 +229,25 @@ export async function streamMessage(
   }
 }
 
+export type Step = {
+  kind: 'warmup' | 'steady' | 'intervals' | 'cooldown'
+  duration_min?: number | null
+  distance_km?: number | null
+  repeats?: number | null
+  target?: string | null
+  recovery?: string | null
+  note?: string | null
+}
+
+export type Exercise = {
+  name: string
+  sets: number
+  reps: string
+  load?: string | null
+  rest_s?: number | null
+  note?: string | null
+}
+
 export type SessionSpec = {
   day: string
   sport: 'run' | 'vertical' | 'ski' | 'cycling' | 'strength' | 'other' | 'rest'
@@ -238,6 +257,8 @@ export type SessionSpec = {
   distance_km: number | null
   elevation_gain_m: number | null
   intensity: string | null
+  steps: Step[]
+  exercises: Exercise[]
   description: string | null
 }
 

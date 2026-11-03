@@ -1,7 +1,9 @@
 import { useQuery } from '@tanstack/react-query'
+import { useState } from 'react'
 import { fetchCalendar, fetchLatestCoach, fetchProposals, fetchToday, type Activity, type GroupTotals } from '../api'
 import { Card } from '../components/Card'
 import { CoachText } from '../components/ChatParts'
+import { SessionDialog } from '../components/SessionDetail'
 import { BaselineBadge, StatTile } from '../components/StatTile'
 import { duration, hours, localToday, number, sentence, weekday } from '../format'
 import { SPORT_GROUPS, displayGroup, groupColor, groupLabel, useTheme } from '../theme'
@@ -62,21 +64,21 @@ function ActivityRow({ activity }: { activity: Activity }) {
   return (
     <li>
       <a href={`#activity/${activity.id}`} className="-mx-2 flex gap-3 rounded-lg px-2 py-2 hover:bg-raised">
-      <span
-        className="mt-1.5 h-2.5 w-2.5 shrink-0 rounded-sm"
-        style={{ background: groupColor(theme, activity.sport_group) }}
-        aria-hidden
-      />
-      <div className="min-w-0 flex-1">
-        <div className="flex justify-between gap-2 text-sm">
-          <span className="truncate text-primary">{activity.name ?? sentence(activity.type_key)}</span>
-          <span className="shrink-0 text-xs text-muted">{weekday(activity.start_time_local)}</span>
+        <span
+          className="mt-1.5 h-2.5 w-2.5 shrink-0 rounded-sm"
+          style={{ background: groupColor(theme, activity.sport_group) }}
+          aria-hidden
+        />
+        <div className="min-w-0 flex-1">
+          <div className="flex justify-between gap-2 text-sm">
+            <span className="truncate text-primary">{activity.name ?? sentence(activity.type_key)}</span>
+            <span className="shrink-0 text-xs text-muted">{weekday(activity.start_time_local)}</span>
+          </div>
+          <div className="text-xs text-secondary">
+            {groupLabel(activity.sport_group)} · {details.join(' · ')}
+            {activity.training_load !== null && ` · load ${number(activity.training_load)}`}
+          </div>
         </div>
-        <div className="text-xs text-secondary">
-          {groupLabel(activity.sport_group)} · {details.join(' · ')}
-          {activity.training_load !== null && ` · load ${number(activity.training_load)}`}
-        </div>
-      </div>
       </a>
     </li>
   )
@@ -88,28 +90,32 @@ function TodayPlan() {
   const proposals = useQuery({ queryKey: ['proposals'], queryFn: fetchProposals })
   const sessions = calendar.data?.sessions ?? []
   const waiting = proposals.data?.length ?? 0
+  const [openId, setOpenId] = useState<number | null>(null)
+  const open = sessions.find((s) => s.id === openId)
   return (
     <Card title="Today's plan">
       {sessions.length === 0 && <p className="text-sm text-muted">Nothing planned today.</p>}
       <ul className="space-y-2">
         {sessions.map((session) => (
           <li key={session.id} className="text-sm">
-            <span className="font-semibold text-primary">{session.title}</span>
-            <span className="text-secondary">
-              {[
-                session.duration_min ? `${number(session.duration_min)} min` : null,
-                session.elevation_gain_m ? `${number(session.elevation_gain_m)} m up` : null,
-                session.intensity,
-              ]
-                .filter(Boolean)
-                .map((part) => `, ${part}`)
-                .join('')}
-            </span>
-            {session.match && <span className="ml-2 text-xs text-secondary">✓ Done</span>}
-            {session.description && <p className="mt-0.5 text-xs whitespace-pre-wrap text-muted">{session.description}</p>}
+            <button type="button" onClick={() => setOpenId(session.id)} className="text-left">
+              <span className="font-semibold text-accent">{session.title}</span>
+              <span className="text-secondary">
+                {[
+                  session.duration_min ? `${number(session.duration_min)} min` : null,
+                  session.elevation_gain_m ? `${number(session.elevation_gain_m)} m up` : null,
+                  session.intensity,
+                ]
+                  .filter(Boolean)
+                  .map((part) => `, ${part}`)
+                  .join('')}
+              </span>
+              {session.match && <span className="ml-2 text-xs text-secondary">✓ Done</span>}
+            </button>
           </li>
         ))}
       </ul>
+      {open && <SessionDialog key={open.id} session={open} today={today} onClose={() => setOpenId(null)} />}
       {waiting > 0 && (
         <a href="#plan" className="mt-3 block text-xs text-accent">
           {waiting === 1 ? '1 plan proposal is' : `${waiting} plan proposals are`} waiting for you
@@ -120,7 +126,10 @@ function TodayPlan() {
 }
 
 function LatestCoachMessage() {
-  const latest = useQuery({ queryKey: ['coach-latest'], queryFn: fetchLatestCoach })
+  const latest = useQuery({
+    queryKey: ['coach-latest'],
+    queryFn: fetchLatestCoach,
+  })
   if (!latest.data) return null
   return (
     <Card title="From your coach" subtitle={latest.data.label ?? undefined}>
@@ -135,7 +144,10 @@ function LatestCoachMessage() {
 }
 
 export function TodayPage() {
-  const { data, error, isPending } = useQuery({ queryKey: ['today'], queryFn: fetchToday })
+  const { data, error, isPending } = useQuery({
+    queryKey: ['today'],
+    queryFn: fetchToday,
+  })
   if (isPending) return <p className="text-sm text-muted">Loading…</p>
   if (error) return <p className="text-sm text-critical">{error.message}</p>
 
@@ -188,9 +200,7 @@ export function TodayPage() {
         <StatTile
           label="Garmin training status"
           value={wellness?.training_status ?? '–'}
-          detail={
-            wellness?.body_battery_at_wake ? `Body battery at wake ${wellness.body_battery_at_wake}` : undefined
-          }
+          detail={wellness?.body_battery_at_wake ? `Body battery at wake ${wellness.body_battery_at_wake}` : undefined}
         />
       </div>
 
@@ -209,7 +219,6 @@ export function TodayPage() {
           </ul>
         )}
       </Card>
-
     </div>
   )
 }

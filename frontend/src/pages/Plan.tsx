@@ -3,11 +3,9 @@ import { useState, type FormEvent } from 'react'
 import {
   acceptProposal,
   createConversation,
-  deleteSession,
   fetchCalendar,
   fetchProposals,
   rejectProposal,
-  setSkipped,
   streamMessage,
   type Activity,
   type PlannedSession,
@@ -18,6 +16,8 @@ import {
 import { Card } from '../components/Card'
 import { applyEvent, type Pending } from '../chatEvents'
 import { Bubble } from '../components/ChatParts'
+import { SessionDialog } from '../components/SessionDetail'
+import { sessionStatus } from '../sessions'
 import { addDays, dayLabel, duration, localToday, mondayOf, number, shortDate } from '../format'
 import { groupColor, groupLabel, useTheme, type Theme } from '../theme'
 
@@ -223,54 +223,22 @@ function PlanRequest() {
   )
 }
 
-function SessionCard({ session, today }: { session: PlannedSession; today: string }) {
+function SessionCard({ session, today, onOpen }: { session: PlannedSession; today: string; onOpen: () => void }) {
   const theme = useTheme()
-  const queryClient = useQueryClient()
-  const refresh = () => queryClient.invalidateQueries({ queryKey: ['calendar'] })
-  const skip = useMutation({ mutationFn: (skipped: boolean) => setSkipped(session.id, skipped), onSuccess: refresh })
-  const remove = useMutation({ mutationFn: () => deleteSession(session.id), onSuccess: refresh })
-  const past = session.day < today
-  const status = session.skipped
-    ? 'Skipped'
-    : session.match
-      ? `✓ Done${session.match.compliance !== null ? `, ${number(session.match.compliance)}%` : ''}`
-      : past && session.sport !== 'rest'
-        ? '▲ Not done'
-        : null
+  const status = sessionStatus(session, today)
   return (
-    <details
-      className={`rounded-lg border border-line bg-surface px-2 py-1.5 text-xs ${session.skipped ? 'opacity-60' : ''}`}
+    <button
+      type="button"
+      onClick={onOpen}
+      className={`block w-full rounded-lg border border-line bg-surface px-2 py-1.5 text-left text-xs hover:bg-raised ${session.skipped ? 'opacity-60' : ''}`}
       style={{ borderLeft: `3px solid ${sportColor(theme, session.sport)}` }}
     >
-      <summary className="cursor-pointer list-none">
-        <span className="block font-semibold text-primary">{session.title}</span>
-        <span className="block text-secondary">{targets(session) || session.kind}</span>
-        {status && <span className={`block ${session.match ? 'text-secondary' : 'text-muted'}`}>{status}</span>}
-      </summary>
-      <div className="mt-2 space-y-2">
-        <p className="text-muted">
-          {session.sport === 'rest' ? 'Rest' : groupLabel(session.sport)}, {session.kind}
-        </p>
-        {session.description && <p className="whitespace-pre-wrap text-secondary">{session.description}</p>}
-        {session.match && (
-          <a href={`#activity/${session.match.activity_id}`} className="block text-accent">
-            Open the activity
-          </a>
-        )}
-        <div className="flex gap-3">
-          <button type="button" onClick={() => skip.mutate(!session.skipped)} className="text-accent">
-            {session.skipped ? 'Unskip' : 'Skip'}
-          </button>
-          <button
-            type="button"
-            onClick={() => window.confirm(`Delete ${session.title}?`) && remove.mutate()}
-            className="text-muted hover:text-critical"
-          >
-            Delete
-          </button>
-        </div>
-      </div>
-    </details>
+      <span className="block font-semibold text-primary">{session.title}</span>
+      <span className="block text-secondary">{targets(session) || session.kind}</span>
+      {status && (
+        <span className={`block ${session.match ? 'text-secondary' : 'text-muted'}`}>{status.split(',')[0]}</span>
+      )}
+    </button>
   )
 }
 
@@ -298,12 +266,14 @@ function WeekRow({
   activities,
   doneSeconds,
   today,
+  onOpen,
 }: {
   monday: string
   sessions: PlannedSession[]
   activities: Activity[]
   doneSeconds: number
   today: string
+  onOpen: (id: number) => void
 }) {
   const days = Array.from({ length: 7 }, (_, index) => addDays(monday, index))
   const plannedMinutes = sessions
@@ -332,7 +302,7 @@ function WeekRow({
               </p>
               <div className="space-y-1.5">
                 {daySessions.map((session) => (
-                  <SessionCard key={session.id} session={session} today={today} />
+                  <SessionCard key={session.id} session={session} today={today} onOpen={() => onOpen(session.id)} />
                 ))}
                 {dayActivities.map((activity) => (
                   <ActivityChip key={activity.id} activity={activity} />
@@ -356,6 +326,8 @@ export function PlanPage() {
   const data = calendar.data
   const matched = new Set(data?.sessions.map((s) => s.match?.activity_id))
   const futureSessions = data?.sessions.filter((s) => s.day >= today).length ?? 0
+  const [openId, setOpenId] = useState<number | null>(null)
+  const open = data?.sessions.find((s) => s.id === openId)
 
   return (
     <div className="space-y-4">
@@ -413,11 +385,13 @@ export function PlanPage() {
                 sessions={data.sessions.filter((s) => mondayOf(s.day) === monday)}
                 activities={weekActivities.filter((a) => !matched.has(a.id))}
                 doneSeconds={weekActivities.reduce((sum, a) => sum + (a.duration_s ?? 0), 0)}
+                onOpen={setOpenId}
               />
             )
           })}
         </div>
       )}
+      {open && <SessionDialog key={open.id} session={open} today={today} onClose={() => setOpenId(null)} />}
       {futureSessions > 0 && (
         <details>
           <summary className="cursor-pointer text-sm text-secondary select-none">Ask the coach for a new plan</summary>

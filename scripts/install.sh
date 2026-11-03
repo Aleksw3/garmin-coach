@@ -4,6 +4,7 @@ set -euo pipefail
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 ENV_FILE="${ENV_FILE:-$ROOT/.env}"
 SLUG_PATTERN='^[a-z0-9][a-z0-9-]{0,31}$'
+export PATH="$HOME/.local/bin:$PATH"
 
 bold=$(tput bold 2>/dev/null || true)
 plain=$(tput sgr0 2>/dev/null || true)
@@ -57,6 +58,39 @@ key_status() {
     -H "x-api-key: $1" -H 'anthropic-version: 2023-06-01' || true
 }
 
+node_major() {
+  if command -v node >/dev/null; then
+    node -p 'process.versions.node.split(".")[0]'
+  else
+    echo 0
+  fi
+}
+
+install_node() {
+  local version=24 arch base name tmp
+  case $(uname -m) in
+    x86_64) arch=x64 ;;
+    aarch64 | arm64) arch=arm64 ;;
+    armv7l) arch=armv7l version=22 ;;
+    *) return 1 ;;
+  esac
+  base=https://nodejs.org/dist/latest-v$version.x
+  tmp=$(mktemp -d)
+  curl -fsSL "$base/SHASUMS256.txt" -o "$tmp/SHASUMS256.txt" || return 1
+  name=$(grep -o "node-v[0-9.]*-linux-$arch\.tar\.gz" "$tmp/SHASUMS256.txt" | head -1)
+  [[ -n $name ]] || return 1
+  info "Downloading $name"
+  curl -fL --progress-bar "$base/$name" -o "$tmp/$name" || return 1
+  (cd "$tmp" && grep " $name\$" SHASUMS256.txt | sha256sum -c --quiet -) || return 1
+  mkdir -p "$HOME/.local/opt" "$HOME/.local/bin"
+  tar -xzf "$tmp/$name" -C "$HOME/.local/opt" || return 1
+  for tool in node npm npx; do
+    ln -sf "$HOME/.local/opt/${name%.tar.gz}/bin/$tool" "$HOME/.local/bin/$tool"
+  done
+  rm -rf "$tmp"
+  hash -r
+}
+
 info "${bold}Garmin coach setup${plain}" \
   "This script installs what the app needs, writes the settings to $ENV_FILE" \
   "and creates a profile for each person. You can run it again later to add a" \
@@ -73,10 +107,21 @@ if ! command -v uv >/dev/null; then
     exit 1
   fi
 fi
-if ! command -v npm >/dev/null || [[ $(node -p 'process.versions.node.split(".")[0]') -lt 20 ]]; then
-  info "Node 20 or newer is missing. On Debian or Raspberry Pi OS, install it from" \
-    "https://nodejs.org or with your package manager, then run this script again."
-  exit 1
+if [[ $(node_major) -lt 20 ]] || ! command -v npm >/dev/null; then
+  if command -v node >/dev/null; then
+    info "Node $(node --version) is too old, the web UI needs 20 or newer."
+  else
+    info "Node is missing."
+  fi
+  info "The script can download the current Node LTS from nodejs.org into" \
+    "$HOME/.local/opt and link it from $HOME/.local/bin. It needs no sudo and leaves the" \
+    "system's Node alone."
+  if confirm "Install Node now?" && install_node && [[ $(node_major) -ge 20 ]]; then
+    info "Installed Node $(node --version)."
+  else
+    info "Install Node 20 or newer from https://nodejs.org and run this script again."
+    exit 1
+  fi
 fi
 info "uv $(uv --version | cut -d' ' -f2) and Node $(node --version) are installed."
 

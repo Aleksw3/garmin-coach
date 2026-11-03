@@ -13,7 +13,7 @@ A self-hosted training coach. It syncs Garmin data to a home server and uses Cla
    ./scripts/install.sh
    ```
    It explains each step and asks for what it needs:
-   - It installs uv if it is missing, and checks for Node 20 or newer.
+   - It installs uv and Node into your home folder if they are missing or too old. Raspberry Pi OS Bookworm ships Node 18, which is too old.
    - It asks for the API key, checks it against Anthropic and saves it in `.env`.
    - It asks for the monthly budget in dollars, shared by all profiles and the research library.
    - It installs the Python packages and builds the web UI.

@@ -6,7 +6,7 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session, sessionmaker
 
 from garmin_coach.coach.agent import Coach
-from garmin_coach.coach.notify import Notifier
+from garmin_coach.coach.notify import Sender
 from garmin_coach.models import Activity, ActivityFeedback, Conversation
 from garmin_coach.reports import week_start
 
@@ -39,7 +39,7 @@ class ProactiveCoach:
         self,
         sessions: sessionmaker[Session],
         coach: Coach,
-        notifier: Notifier,
+        notifier: Sender,
         feedback_window: timedelta = timedelta(hours=36),
         now: Callable[[], datetime] = datetime.now,
     ) -> None:

@@ -5,7 +5,6 @@ from fastapi.testclient import TestClient
 from sqlalchemy.orm import Session, sessionmaker
 
 from garmin_coach import raw_store
-from garmin_coach.api.app import create_app
 from garmin_coach.coach.agent import Coach, coach_settings
 from garmin_coach.config import Settings
 from garmin_coach.metrics.compliance import match_sessions
@@ -13,6 +12,7 @@ from garmin_coach.metrics.strength import effective_sets
 from garmin_coach.models import Plan, PlannedSession, SessionMatch
 from garmin_coach.normalize import rebuild_all
 from garmin_coach.sync import SyncService
+from tests.apps import single_app
 from tests.garmin_data import FakeGarmin, activity_summary, exercise_sets
 
 NOW = datetime(2026, 10, 30, 12, 0)
@@ -80,7 +80,7 @@ def test_activity_page_and_set_editor(plan: sessionmaker[Session]) -> None:
         return SyncService(FakeGarmin([]), plan, request_delay=0, sleep=lambda _: None)
 
     coach = Coach(plan, None, coach_settings(Settings.model_construct()))
-    client = TestClient(create_app(plan, make_service, coach, schedule_sync=False))
+    client = TestClient(single_app(plan, make_service, coach, schedule_sync=False))
     with plan() as session:
         match_sessions(session, date(2026, 10, 26), date(2026, 11, 1))
         session.commit()

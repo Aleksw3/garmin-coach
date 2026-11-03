@@ -1,12 +1,13 @@
 import math
-from collections.abc import Iterator
 from datetime import date, timedelta
 from typing import Annotated
 
-from fastapi import APIRouter, Depends, Query, Request
+from fastapi import APIRouter, Query, Request
+from pydantic import BaseModel
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
+from garmin_coach.api.profile import ProfileDep, ProfileRuntime, SessionDep
 from garmin_coach.api.schemas import (
     ActivityOut,
     BaselineOut,
@@ -24,12 +25,13 @@ from garmin_coach.api.schemas import (
 )
 from garmin_coach.config import get_settings
 from garmin_coach.jobs import SyncRunner
-from garmin_coach.metrics.load import training_load
+from garmin_coach.metrics.load import training_load, trimp_for
 from garmin_coach.metrics.recovery import BaselineStatus, hrv_baseline, resting_hr_baseline
 from garmin_coach.metrics.running import climb_per_km, run_weeks, terrain
 from garmin_coach.metrics.strength import best_one_rep_max, effective_sets, weekly_sets_per_muscle
 from garmin_coach.models import Activity, DailyWellness, SyncRun
 from garmin_coach.normalize.sports import OTHER, sport_groups
+from garmin_coach.profiles import profile_name
 from garmin_coach.reports import WeekTotals, week_start, weekly_totals
 from garmin_coach.sync import LAST_SYNC, get_state
 
@@ -39,17 +41,19 @@ RECENT_ACTIVITY_COUNT = 5
 TERRAIN_GROUPS = ("run", "vertical")
 
 
-def get_session(request: Request) -> Iterator[Session]:
-    with request.app.state.sessions() as session:
-        yield session
+class ProfileSummaryOut(BaseModel):
+    slug: str
+    name: str
 
 
-SessionDep = Annotated[Session, Depends(get_session)]
-
-
-def get_runner(request: Request) -> SyncRunner:
-    runner: SyncRunner = request.app.state.sync_runner
-    return runner
+@router.get("/profiles", response_model=list[ProfileSummaryOut])
+def list_profiles(request: Request) -> list[ProfileSummaryOut]:
+    profiles: dict[str, ProfileRuntime] = request.app.state.profiles
+    result = []
+    for slug, profile in profiles.items():
+        with profile.sessions() as session:
+            result.append(ProfileSummaryOut(slug=slug, name=profile_name(session, slug)))
+    return result
 
 
 def group_totals(rows: list[WeekTotals]) -> list[GroupTotalsOut]:
@@ -115,7 +119,7 @@ def latest_wellness(session: Session, day: date) -> WellnessOut | None:
 def today(session: SessionDep, day: date | None = None) -> TodayOut:
     day = day or date.today()
     groups = sport_groups(session)
-    load = training_load(session, day, day, get_settings().trimp_coefficient)
+    load = training_load(session, day, day, trimp_for(session, get_settings().trimp_coefficient))
     hrv = hrv_baseline(session, day, day)
     recent = session.scalars(
         select(Activity)
@@ -175,7 +179,9 @@ def trends(
         weekly_totals=group_totals(weekly_totals(session, first_week, last_week)),
         load=[
             LoadOut(**vars(entry))
-            for entry in training_load(session, first_week, last, get_settings().trimp_coefficient)
+            for entry in training_load(
+                session, first_week, last, trimp_for(session, get_settings().trimp_coefficient)
+            )
         ],
         hrv=hrv_points(session, first_week, last),
         run_weeks=[
@@ -217,12 +223,12 @@ def sync_status(session: Session, runner: SyncRunner) -> SyncStatusOut:
 
 
 @router.get("/sync", response_model=SyncStatusOut)
-def get_sync(session: SessionDep, request: Request) -> SyncStatusOut:
-    return sync_status(session, get_runner(request))
+def get_sync(session: SessionDep, profile: ProfileDep) -> SyncStatusOut:
+    return sync_status(session, profile.runner)
 
 
 @router.post("/sync", response_model=SyncStatusOut)
-def start_sync(session: SessionDep, request: Request) -> SyncStatusOut:
-    runner = get_runner(request)
+def start_sync(session: SessionDep, profile: ProfileDep) -> SyncStatusOut:
+    runner = profile.runner
     runner.start_in_background()
     return sync_status(session, runner)

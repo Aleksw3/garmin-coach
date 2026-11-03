@@ -1,4 +1,5 @@
 import argparse
+import getpass
 import json
 import logging
 import sys
@@ -11,37 +12,64 @@ from sqlalchemy.orm import Session, sessionmaker
 
 from garmin_coach import raw_store
 from garmin_coach.config import get_settings
-from garmin_coach.db import create_db_engine, session_factory
-from garmin_coach.evidence.library import seed_topics
 from garmin_coach.garmin.connect import GarminConnectSource
 from garmin_coach.garmin.source import GarminAuthError, GarminRateLimited
+from garmin_coach.metrics.load import trimp_for
 from garmin_coach.metrics.summary import format_metrics
-from garmin_coach.migrate import upgrade_database
 from garmin_coach.models import Activity, DailyWellness, SyncRun
 from garmin_coach.normalize import rebuild_all
-from garmin_coach.normalize.sports import seed_sport_mapping, unmapped_type_keys
+from garmin_coach.normalize.sports import unmapped_type_keys
+from garmin_coach.profiles import (
+    ProfileError,
+    adopt_single_database,
+    athlete,
+    create_profile,
+    open_profile,
+    open_research,
+    profile_name,
+    profile_slugs,
+)
 from garmin_coach.reports import format_weekly_totals, week_start, weekly_totals
 from garmin_coach.sync import BACKFILL_CURSOR, LAST_SYNC, SyncService, get_state
 
 
-def open_database() -> sessionmaker[Session]:
+def chosen_profile(args: argparse.Namespace) -> str:
     settings = get_settings()
-    upgrade_database(settings.database_url)
-    sessions = session_factory(create_db_engine(settings.database_url))
-    with sessions() as session:
-        seed_sport_mapping(session)
-        seed_topics(session)
-        session.commit()
-    return sessions
+    slugs = profile_slugs(settings)
+    if args.profile:
+        return str(args.profile)
+    if len(slugs) == 1:
+        return slugs[0]
+    if not slugs and settings.single_database_path.exists():
+        raise ProfileError(
+            "The data is still in the old single-person layout. "
+            "Move it into a profile with: coach profile adopt <name>"
+        )
+    if not slugs:
+        raise ProfileError("No profiles yet. Create one with: coach profile add <name>")
+    raise ProfileError(f"Choose a profile with --profile: {', '.join(slugs)}")
 
 
-def sync_service(sessions: sessionmaker[Session]) -> SyncService:
+def open_database(args: argparse.Namespace) -> sessionmaker[Session]:
+    return open_profile(get_settings(), chosen_profile(args))
+
+
+def garmin_mfa() -> str:
+    return input("Garmin MFA code: ").strip()
+
+
+def sync_service(
+    slug: str,
+    sessions: sessionmaker[Session],
+    email: str | None = None,
+    password: str | None = None,
+) -> SyncService:
     settings = get_settings()
     source = GarminConnectSource(
-        settings.garmin_tokens_dir,
-        settings.garmin_email,
-        settings.garmin_password,
-        prompt_mfa=lambda: input("Garmin MFA code: ").strip(),
+        settings.profile_tokens_dir(slug),
+        email,
+        password,
+        prompt_mfa=garmin_mfa,
     )
     return SyncService(
         source,
@@ -52,13 +80,51 @@ def sync_service(sessions: sessionmaker[Session]) -> SyncService:
     )
 
 
+def profile_sync_service(args: argparse.Namespace) -> SyncService:
+    slug = chosen_profile(args)
+    return sync_service(slug, open_profile(get_settings(), slug))
+
+
+def command_login(args: argparse.Namespace) -> None:
+    slug = chosen_profile(args)
+    email = input(f"Garmin email for {slug}: ").strip()
+    password = getpass.getpass("Garmin password: ")
+    tokens = get_settings().profile_tokens_dir(slug)
+    GarminConnectSource(tokens, email, password, prompt_mfa=garmin_mfa).login()
+    print(f"Logged in. The tokens are in {tokens}")
+
+
+def command_profile_add(args: argparse.Namespace) -> None:
+    settings = get_settings()
+    create_profile(settings, args.slug, args.name, args.trimp or settings.trimp_coefficient)
+    print(f"Created profile {args.slug}. Log in to Garmin with: coach -p {args.slug} login")
+
+
+def command_profile_list(args: argparse.Namespace) -> None:
+    settings = get_settings()
+    for slug in profile_slugs(settings):
+        with open_profile(settings, slug)() as session:
+            print(f"{slug}: {profile_name(session, slug)}")
+
+
+def command_profile_adopt(args: argparse.Namespace) -> None:
+    settings = get_settings()
+    moved = adopt_single_database(
+        settings, args.slug, settings.ntfy_topic, settings.trimp_coefficient
+    )
+    print(
+        f"Moved the data into profile {args.slug} and {moved} research papers into "
+        f"{settings.research_database_path}"
+    )
+
+
 def command_sync(args: argparse.Namespace) -> None:
-    result = sync_service(open_database()).sync_recent()
+    result = profile_sync_service(args).sync_recent()
     print(f"Synced {result.activities} activities and {result.days} days in {result.calls} calls")
 
 
 def command_backfill(args: argparse.Namespace) -> None:
-    result = sync_service(open_database()).backfill(args.days, restart=args.restart)
+    result = profile_sync_service(args).backfill(args.days, restart=args.restart)
     print(
         f"Backfill done: {result.activities} activities, {result.days} days, "
         f"{result.calls} calls, {result.failed_calls} failed"
@@ -66,7 +132,7 @@ def command_backfill(args: argparse.Namespace) -> None:
 
 
 def command_rebuild(args: argparse.Namespace) -> None:
-    sessions = open_database()
+    sessions = open_database(args)
     with sessions() as session:
         activities, days = rebuild_all(session)
         session.commit()
@@ -79,7 +145,7 @@ def read_json(path: Path) -> Any:
 
 def command_import_probe(args: argparse.Namespace) -> None:
     probe_dir: Path = args.probe_dir
-    sessions = open_database()
+    sessions = open_database(args)
     with sessions() as session:
         summaries: dict[int, Any] = {}
         for name in ("list_history.json", "list_recent.json"):
@@ -113,7 +179,7 @@ def command_import_probe(args: argparse.Namespace) -> None:
 
 
 def command_weeks(args: argparse.Namespace) -> None:
-    sessions = open_database()
+    sessions = open_database(args)
     last = week_start(args.end)
     first = last - timedelta(weeks=args.weeks - 1)
     with sessions() as session:
@@ -121,7 +187,7 @@ def command_weeks(args: argparse.Namespace) -> None:
 
 
 def command_status(args: argparse.Namespace) -> None:
-    sessions = open_database()
+    sessions = open_database(args)
     with sessions() as session:
         activities = session.scalar(select(func.count()).select_from(Activity))
         days = session.scalar(select(func.count()).select_from(DailyWellness))
@@ -141,9 +207,10 @@ def command_status(args: argparse.Namespace) -> None:
 
 
 def command_metrics(args: argparse.Namespace) -> None:
-    sessions = open_database()
+    sessions = open_database(args)
     with sessions() as session:
-        print(format_metrics(session, args.weeks, args.end, get_settings().trimp_coefficient))
+        trimp = trimp_for(session, get_settings().trimp_coefficient)
+        print(format_metrics(session, args.weeks, args.end, trimp))
 
 
 def command_structure_sessions(args: argparse.Namespace) -> None:
@@ -159,7 +226,7 @@ def command_structure_sessions(args: argparse.Namespace) -> None:
         anthropic.Anthropic(api_key=settings.anthropic_api_key).messages.create,
         settings.background_model,
     )
-    sessions = open_database()
+    sessions = open_database(args)
     with sessions() as session:
         rows = unstructured(session)
         for row in rows:
@@ -177,45 +244,62 @@ def command_serve(args: argparse.Namespace) -> None:
     import uvicorn
 
     from garmin_coach.api.app import create_app
+    from garmin_coach.api.profile import ProfileRuntime, make_profile
     from garmin_coach.coach.agent import Coach, anthropic_stream_factory, coach_settings
-    from garmin_coach.coach.notify import Notifier
+    from garmin_coach.coach.notify import Notifier, ProfileNotifier
     from garmin_coach.coach.proactive import ProactiveCoach
+    from garmin_coach.coach.usage import Spending
     from garmin_coach.evidence.fetch import EvidenceFetcher
     from garmin_coach.evidence.pubmed import PubMed
     from garmin_coach.evidence.summarize import Summarizer
     from garmin_coach.jobs import Schedule
 
     settings = get_settings()
-    sessions = open_database()
+    slugs = profile_slugs(settings)
+    if not slugs:
+        chosen_profile(args)
+    research = open_research(settings)
+    databases = {slug: open_profile(settings, slug) for slug in slugs}
+    spending = Spending([research, *databases.values()])
     key = settings.anthropic_api_key
-    coach = Coach(
-        sessions, anthropic_stream_factory(key) if key else None, coach_settings(settings)
-    )
-    notifier = Notifier(
-        settings.ntfy_url, settings.ntfy_topic, settings.ntfy_token, settings.app_url
-    )
-    proactive = (
-        ProactiveCoach(sessions, coach, notifier, timedelta(hours=settings.feedback_window_hours))
-        if key
-        else None
-    )
+    stream_factory = anthropic_stream_factory(key) if key else None
+    base_notifier = Notifier(settings.ntfy_url, None, settings.ntfy_token, settings.app_url)
+
+    def runtime(slug: str, sessions: sessionmaker[Session]) -> ProfileRuntime:
+        def read_topic() -> str | None:
+            with sessions() as session:
+                return athlete(session).ntfy_topic
+
+        coach = Coach(
+            sessions,
+            stream_factory,
+            coach_settings(settings),
+            research=research,
+            spending=spending,
+        )
+        notifier = ProfileNotifier(base_notifier, slug, read_topic)
+        window = timedelta(hours=settings.feedback_window_hours)
+        proactive = ProactiveCoach(sessions, coach, notifier, window) if key else None
+        return make_profile(
+            slug, sessions, lambda: sync_service(slug, sessions), coach, proactive, notifier
+        )
+
     fetcher = (
         EvidenceFetcher(
-            sessions,
+            research,
             PubMed(),
             Summarizer(anthropic.Anthropic(api_key=key).messages.create, settings.background_model),
             settings.monthly_budget_usd,
+            spending=spending,
         )
         if key
         else None
     )
     app = create_app(
-        sessions,
-        lambda: sync_service(sessions),
-        coach,
+        [runtime(slug, sessions) for slug, sessions in databases.items()],
+        research,
         frontend_dir=settings.frontend_dir,
         schedule_sync=not args.no_schedule,
-        proactive=proactive,
         schedule=Schedule(
             settings.checkin_time,
             settings.review_day,
@@ -223,7 +307,6 @@ def command_serve(args: argparse.Namespace) -> None:
             settings.evidence_day,
             settings.evidence_time,
         ),
-        notifier=notifier,
         evidence_fetcher=fetcher,
     )
     uvicorn.run(app, host=args.host, port=args.port)
@@ -232,7 +315,26 @@ def command_serve(args: argparse.Namespace) -> None:
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(prog="coach")
     parser.add_argument("-v", "--verbose", action="store_true")
+    parser.add_argument("-p", "--profile", help="the profile to use when there are several")
     commands = parser.add_subparsers(required=True)
+
+    login = commands.add_parser("login", help="log in to Garmin and save the tokens")
+    login.set_defaults(run=command_login)
+
+    profile = commands.add_parser("profile", help="add, list or adopt profiles")
+    profile_commands = profile.add_subparsers(required=True)
+    add = profile_commands.add_parser("add", help="create an empty profile")
+    add.add_argument("slug", help="lowercase name used in paths, for example kari")
+    add.add_argument("--name", help="display name")
+    add.add_argument("--trimp", type=float, help="TRIMP factor, 1.92 for men, 1.67 for women")
+    add.set_defaults(run=command_profile_add)
+    listing = profile_commands.add_parser("list", help="list the profiles")
+    listing.set_defaults(run=command_profile_list)
+    adopt = profile_commands.add_parser(
+        "adopt", help="move the old single-person data into a profile"
+    )
+    adopt.add_argument("slug")
+    adopt.set_defaults(run=command_profile_adopt)
 
     sync = commands.add_parser("sync", help="fetch recent Garmin data")
     sync.set_defaults(run=command_sync)
@@ -289,5 +391,8 @@ def main() -> int:
         return 2
     except GarminAuthError as e:
         print(f"Garmin login failed: {e}", file=sys.stderr)
+        return 1
+    except ProfileError as e:
+        print(e, file=sys.stderr)
         return 1
     return 0

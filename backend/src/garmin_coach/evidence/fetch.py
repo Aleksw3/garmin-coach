@@ -3,12 +3,12 @@ import logging
 import threading
 from collections.abc import Callable
 from dataclasses import asdict, dataclass, field
-from datetime import datetime
+from datetime import date, datetime
 
 from sqlalchemy import select
 from sqlalchemy.orm import Session, sessionmaker
 
-from garmin_coach.coach.usage import month_spend, record_usage
+from garmin_coach.coach.usage import Spending, record_usage
 from garmin_coach.evidence.library import SEED_PMIDS
 from garmin_coach.evidence.pubmed import STUDY_FILTER, Paper, PubMed
 from garmin_coach.evidence.summarize import Summarizer
@@ -37,8 +37,10 @@ class EvidenceFetcher:
         summarizer: Summarizer,
         monthly_budget_usd: float,
         now: Callable[[], datetime] = datetime.now,
+        spending: Callable[[date], float] | None = None,
     ) -> None:
         self.sessions = sessions
+        self.spending = spending or Spending([sessions])
         self.pubmed = pubmed
         self.summarizer = summarizer
         self.monthly_budget_usd = monthly_budget_usd
@@ -60,10 +62,9 @@ class EvidenceFetcher:
 
     def _store(self, papers: list[Paper], topic_id: int | None, result: FetchResult) -> None:
         for paper in papers:
-            with self.sessions() as session:
-                if month_spend(session, self.now().date()) >= self.monthly_budget_usd:
-                    result.errors.append("Stopped: the monthly API budget is used up")
-                    return
+            if self.spending(self.now().date()) >= self.monthly_budget_usd:
+                result.errors.append("Stopped: the monthly API budget is used up")
+                return
             try:
                 summary, usage = self.summarizer.summarize(paper)
             except Exception as error:

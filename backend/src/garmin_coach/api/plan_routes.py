@@ -6,7 +6,8 @@ from fastapi import APIRouter, HTTPException, Query, Response
 from pydantic import BaseModel, ConfigDict
 from sqlalchemy import select
 
-from garmin_coach.api.routes import SessionDep, activity_out
+from garmin_coach.api.profile import SessionDep
+from garmin_coach.api.routes import activity_out
 from garmin_coach.api.schemas import ActivityOut
 from garmin_coach.coach.plan import (
     Change,

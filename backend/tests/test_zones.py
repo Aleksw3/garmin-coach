@@ -4,7 +4,6 @@ from fastapi.testclient import TestClient
 from sqlalchemy.orm import Session, sessionmaker
 
 from garmin_coach import raw_store
-from garmin_coach.api.app import create_app
 from garmin_coach.coach.agent import Coach, coach_settings
 from garmin_coach.coach.tools import ToolContext, run_tool
 from garmin_coach.config import Settings
@@ -13,6 +12,7 @@ from garmin_coach.metrics.zones import hr_zones, zone_of, zone_range
 from garmin_coach.normalize import rebuild_all
 from garmin_coach.reports import week_start
 from garmin_coach.sync import SyncService
+from tests.apps import single_app
 from tests.garmin_data import FakeGarmin, activity_summary
 
 STEP_S = 10
@@ -73,7 +73,7 @@ def test_zone_api_and_tools(sessions: sessionmaker[Session]) -> None:
         return SyncService(FakeGarmin([]), sessions, request_delay=0, sleep=lambda _: None)
 
     coach = Coach(sessions, None, coach_settings(Settings.model_construct()))
-    client = TestClient(create_app(sessions, make_service, coach, schedule_sync=False))
+    client = TestClient(single_app(sessions, make_service, coach, schedule_sync=False))
 
     assert client.get("/api/zones").json()["current"] is None
     assert client.get("/api/zones/weekly").json() == []

@@ -8,7 +8,6 @@ from fastapi.testclient import TestClient
 from sqlalchemy import select
 from sqlalchemy.orm import Session, sessionmaker
 
-from garmin_coach.api.app import create_app
 from garmin_coach.coach.agent import Coach, coach_settings
 from garmin_coach.coach.tools import ToolContext, run_tool
 from garmin_coach.config import Settings
@@ -18,6 +17,7 @@ from garmin_coach.evidence.pubmed import Paper, PubMed, parse_articles
 from garmin_coach.evidence.summarize import Summarizer, design_for
 from garmin_coach.models import ApiUsage, Evidence, EvidenceTopic
 from garmin_coach.sync import SyncService
+from tests.apps import single_app
 from tests.garmin_data import FakeGarmin
 
 NOW = datetime(2026, 11, 2, 7, 0)
@@ -164,7 +164,7 @@ def test_review_search_and_dispute(topics: sessionmaker[Session]) -> None:
         return SyncService(FakeGarmin([]), topics, request_delay=0, sleep=lambda _: None)
 
     coach = Coach(topics, None, coach_settings(Settings.model_construct()))
-    client = TestClient(create_app(topics, make_service, coach, schedule_sync=False))
+    client = TestClient(single_app(topics, make_service, coach, schedule_sync=False))
 
     queue = client.get("/api/evidence").json()
     assert len(queue) == len(SEED_PMIDS) + 2

@@ -2,7 +2,9 @@ import logging
 import urllib.error
 import urllib.parse
 import urllib.request
-from dataclasses import dataclass
+from collections.abc import Callable
+from dataclasses import dataclass, replace
+from typing import Protocol
 
 log = logging.getLogger(__name__)
 
@@ -44,3 +46,39 @@ class Notifier:
 
 
 NO_NOTIFIER = Notifier("https://ntfy.sh", None)
+
+
+class Sender(Protocol):
+    @property
+    def url(self) -> str: ...
+
+    @property
+    def topic(self) -> str | None: ...
+
+    @property
+    def enabled(self) -> bool: ...
+
+    def send(self, title: str, message: str, page: str = "#chat") -> bool: ...
+
+
+class ProfileNotifier:
+    def __init__(self, base: Notifier, slug: str, read_topic: Callable[[], str | None]) -> None:
+        self.base = base
+        self.slug = slug
+        self.read_topic = read_topic
+
+    @property
+    def url(self) -> str:
+        return self.base.url
+
+    @property
+    def topic(self) -> str | None:
+        return self.read_topic()
+
+    @property
+    def enabled(self) -> bool:
+        return bool(self.topic)
+
+    def send(self, title: str, message: str, page: str = "#chat") -> bool:
+        notifier = replace(self.base, topic=self.topic)
+        return notifier.send(title, message, f"?profile={self.slug}{page}")

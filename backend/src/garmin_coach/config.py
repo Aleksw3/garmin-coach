@@ -11,8 +11,6 @@ class Settings(BaseSettings):
 
     data_dir: Path = REPO_ROOT / "data"
     frontend_dir: Path = REPO_ROOT / "frontend" / "dist"
-    garmin_email: str | None = None
-    garmin_password: str | None = None
     garmin_request_delay: float = 2.0
     recent_sync_days: int = 14
     daily_refresh_days: int = 3
@@ -36,16 +34,33 @@ class Settings(BaseSettings):
     monthly_budget_usd: float = 5.0
 
     @property
-    def database_path(self) -> Path:
+    def single_database_path(self) -> Path:
         return self.data_dir / "coach.db"
 
     @property
-    def database_url(self) -> str:
-        return f"sqlite:///{self.database_path}"
+    def single_tokens_dir(self) -> Path:
+        return self.data_dir / "garmin_tokens"
 
     @property
-    def garmin_tokens_dir(self) -> Path:
-        return self.data_dir / "garmin_tokens"
+    def profiles_dir(self) -> Path:
+        return self.data_dir / "profiles"
+
+    @property
+    def research_database_path(self) -> Path:
+        return self.data_dir / "research.db"
+
+    def profile_dir(self, slug: str) -> Path:
+        return self.profiles_dir / slug
+
+    def profile_database_path(self, slug: str) -> Path:
+        return self.profile_dir(slug) / "coach.db"
+
+    def profile_tokens_dir(self, slug: str) -> Path:
+        return self.profile_dir(slug) / "garmin_tokens"
+
+
+def sqlite_url(path: Path) -> str:
+    return f"sqlite:///{path}"
 
 
 @lru_cache

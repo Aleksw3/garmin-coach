@@ -6,7 +6,7 @@ from fastapi import APIRouter, HTTPException, Query, Request, Response
 from pydantic import BaseModel, ConfigDict, Field
 from sqlalchemy import func, select
 
-from garmin_coach.api.routes import SessionDep
+from garmin_coach.api.profile import ResearchDep
 from garmin_coach.evidence.fetch import LAST_FETCH, EvidenceFetcher
 from garmin_coach.evidence.library import citation, index_entry, search, set_status
 from garmin_coach.evidence.summarize import DESIGNS, EFFECTS, GRADES
@@ -87,7 +87,7 @@ def evidence_out(entry: Evidence) -> EvidenceOut:
     return EvidenceOut.model_validate(entry).model_copy(update={"citation": citation(entry)})
 
 
-def find_entry(session: SessionDep, entry_id: int) -> Evidence:
+def find_entry(session: ResearchDep, entry_id: int) -> Evidence:
     entry = session.get(Evidence, entry_id)
     if entry is None:
         raise HTTPException(404, "Evidence entry not found")
@@ -101,7 +101,7 @@ def get_fetcher(request: Request) -> EvidenceFetcher | None:
 
 @router.get("", response_model=list[EvidenceOut])
 def list_evidence(
-    session: SessionDep,
+    session: ResearchDep,
     status: Literal["pending", "approved", "rejected"] = "pending",
     q: Annotated[str | None, Query(max_length=300)] = None,
 ) -> list[EvidenceOut]:
@@ -119,7 +119,7 @@ def list_evidence(
 
 
 @router.put("/{entry_id}", response_model=EvidenceOut)
-def edit_evidence(session: SessionDep, entry_id: int, body: EvidenceEdit) -> EvidenceOut:
+def edit_evidence(session: ResearchDep, entry_id: int, body: EvidenceEdit) -> EvidenceOut:
     entry = find_entry(session, entry_id)
     for name, value in body.model_dump().items():
         setattr(entry, name, value)
@@ -131,7 +131,7 @@ def edit_evidence(session: SessionDep, entry_id: int, body: EvidenceEdit) -> Evi
 
 
 @router.post("/{entry_id}/status", response_model=EvidenceOut)
-def change_status(session: SessionDep, entry_id: int, body: StatusIn) -> EvidenceOut:
+def change_status(session: ResearchDep, entry_id: int, body: StatusIn) -> EvidenceOut:
     entry = find_entry(session, entry_id)
     set_status(session, entry, body.status, datetime.now())
     session.commit()
@@ -139,7 +139,7 @@ def change_status(session: SessionDep, entry_id: int, body: StatusIn) -> Evidenc
 
 
 @router.put("/{entry_id}/disputed", response_model=EvidenceOut)
-def set_disputed(session: SessionDep, entry_id: int, body: DisputeIn) -> EvidenceOut:
+def set_disputed(session: ResearchDep, entry_id: int, body: DisputeIn) -> EvidenceOut:
     entry = find_entry(session, entry_id)
     if body.disputed_by_id is not None:
         if body.disputed_by_id == entry_id:
@@ -150,7 +150,7 @@ def set_disputed(session: SessionDep, entry_id: int, body: DisputeIn) -> Evidenc
     return evidence_out(entry)
 
 
-def topic_out(session: SessionDep, topic: EvidenceTopic) -> TopicOut:
+def topic_out(session: ResearchDep, topic: EvidenceTopic) -> TopicOut:
     counts = {
         status: count
         for status, count in session.execute(
@@ -165,20 +165,20 @@ def topic_out(session: SessionDep, topic: EvidenceTopic) -> TopicOut:
 
 
 @router.get("/topics", response_model=list[TopicOut])
-def list_topics(session: SessionDep) -> list[TopicOut]:
+def list_topics(session: ResearchDep) -> list[TopicOut]:
     topics = session.scalars(select(EvidenceTopic).order_by(EvidenceTopic.id))
     return [topic_out(session, topic) for topic in topics]
 
 
 @router.post("/topics", response_model=TopicOut)
-def create_topic(session: SessionDep, body: TopicIn) -> TopicOut:
+def create_topic(session: ResearchDep, body: TopicIn) -> TopicOut:
     topic = EvidenceTopic(**body.model_dump())
     session.add(topic)
     session.commit()
     return topic_out(session, topic)
 
 
-def find_topic(session: SessionDep, topic_id: int) -> EvidenceTopic:
+def find_topic(session: ResearchDep, topic_id: int) -> EvidenceTopic:
     topic = session.get(EvidenceTopic, topic_id)
     if topic is None:
         raise HTTPException(404, "Topic not found")
@@ -186,7 +186,7 @@ def find_topic(session: SessionDep, topic_id: int) -> EvidenceTopic:
 
 
 @router.put("/topics/{topic_id}", response_model=TopicOut)
-def update_topic(session: SessionDep, topic_id: int, body: TopicIn) -> TopicOut:
+def update_topic(session: ResearchDep, topic_id: int, body: TopicIn) -> TopicOut:
     topic = find_topic(session, topic_id)
     for name, value in body.model_dump().items():
         setattr(topic, name, value)
@@ -195,13 +195,13 @@ def update_topic(session: SessionDep, topic_id: int, body: TopicIn) -> TopicOut:
 
 
 @router.delete("/topics/{topic_id}", status_code=204)
-def delete_topic(session: SessionDep, topic_id: int) -> Response:
+def delete_topic(session: ResearchDep, topic_id: int) -> Response:
     session.delete(find_topic(session, topic_id))
     session.commit()
     return Response(status_code=204)
 
 
-def fetch_status(session: SessionDep, fetcher: EvidenceFetcher | None) -> FetchStatusOut:
+def fetch_status(session: ResearchDep, fetcher: EvidenceFetcher | None) -> FetchStatusOut:
     last = get_state(session, LAST_FETCH)
     return FetchStatusOut(
         running=fetcher.running if fetcher else False,
@@ -211,12 +211,12 @@ def fetch_status(session: SessionDep, fetcher: EvidenceFetcher | None) -> FetchS
 
 
 @router.get("/fetch", response_model=FetchStatusOut)
-def get_fetch(session: SessionDep, request: Request) -> FetchStatusOut:
+def get_fetch(session: ResearchDep, request: Request) -> FetchStatusOut:
     return fetch_status(session, get_fetcher(request))
 
 
 @router.post("/fetch", response_model=FetchStatusOut)
-def start_fetch(session: SessionDep, request: Request) -> FetchStatusOut:
+def start_fetch(session: ResearchDep, request: Request) -> FetchStatusOut:
     fetcher = get_fetcher(request)
     if fetcher is None:
         raise HTTPException(409, "Fetching needs ANTHROPIC_API_KEY in .env for the summaries")

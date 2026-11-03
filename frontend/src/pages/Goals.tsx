@@ -302,6 +302,17 @@ function ProfileForm({ initial }: { initial: Profile }) {
           onChange={(e) => set('max_hr', numeric(e.target.value))}
         />
       </Field>
+      <Field label="TRIMP factor for training load, 1.92 for men, 1.67 for women">
+        <input
+          type="number"
+          step="0.01"
+          min="1"
+          max="3"
+          className={INPUT}
+          value={profile.trimp_coefficient ?? ''}
+          onChange={(e) => set('trimp_coefficient', numeric(e.target.value))}
+        />
+      </Field>
       <Field label="Training days, for example long run Saturday, strength Tuesday and Thursday" wide>
         <textarea
           rows={2}

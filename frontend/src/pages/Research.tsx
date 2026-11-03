@@ -471,6 +471,9 @@ export function ResearchPage() {
           </button>
         ))}
       </div>
+      <p className="text-xs text-muted">
+        The library is shared by every profile. A paper anyone approves reaches every coach, with the notes on it.
+      </p>
       <FetchBar />
       {tab === 'queue' && <Queue library={library.data ?? []} />}
       {tab === 'library' && <Library library={library.data ?? []} />}

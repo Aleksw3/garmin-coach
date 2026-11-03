@@ -101,8 +101,46 @@ export type SyncRun = {
 
 export type SyncStatus = { running: boolean; last_sync: string | null; runs: SyncRun[] }
 
+const PROFILE_KEY = 'profile'
+
+function readStoredProfile(): string | null {
+  try {
+    return localStorage.getItem(PROFILE_KEY)
+  } catch {
+    return null
+  }
+}
+
+let activeProfile: string | null = readStoredProfile()
+
+export function currentProfile(): string | null {
+  return activeProfile
+}
+
+export function chooseProfile(slug: string): void {
+  activeProfile = slug
+  try {
+    localStorage.setItem(PROFILE_KEY, slug)
+  } catch {
+    // The choice then lasts until the page reloads
+  }
+}
+
+const linkedProfile = new URLSearchParams(window.location.search).get('profile')
+if (linkedProfile) {
+  chooseProfile(linkedProfile)
+  window.history.replaceState(null, '', window.location.pathname + window.location.hash)
+}
+
+function withProfile(init?: RequestInit): RequestInit {
+  if (!activeProfile) return init ?? {}
+  const headers = new Headers(init?.headers)
+  headers.set('X-Profile', activeProfile)
+  return { ...init, headers }
+}
+
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
-  const response = await fetch(path, init)
+  const response = await fetch(path, withProfile(init))
   if (!response.ok) {
     const body = (await response.json().catch(() => null)) as { detail?: unknown } | null
     const detail = typeof body?.detail === 'string' ? `: ${body.detail}` : ''
@@ -137,6 +175,7 @@ export type Profile = {
   sex: string | null
   height_cm: number | null
   max_hr: number | null
+  trimp_coefficient?: number | null
   training_days: string | null
   injuries: string | null
   equipment: string | null
@@ -174,6 +213,7 @@ export type UsageRow = {
 
 export type Usage = {
   month_cost_usd: number
+  household_cost_usd: number
   budget_usd: number
   calls_this_month: number
   chat_model: string
@@ -189,7 +229,7 @@ const json = (method: string, body: unknown): RequestInit => ({
 })
 
 async function send(path: string, init: RequestInit): Promise<void> {
-  const response = await fetch(path, init)
+  const response = await fetch(path, withProfile(init))
   if (!response.ok) throw new Error(`${init.method} ${path} failed with ${response.status}`)
 }
 
@@ -213,7 +253,10 @@ export async function streamMessage(
   onEvent: (event: ChatEvent) => void,
   purpose: 'chat' | 'plan' = 'chat',
 ): Promise<void> {
-  const response = await fetch(`/api/conversations/${conversationId}/messages`, json('POST', { text, purpose }))
+  const response = await fetch(
+    `/api/conversations/${conversationId}/messages`,
+    withProfile(json('POST', { text, purpose })),
+  )
   if (!response.ok || !response.body) throw new Error(`Sending failed with ${response.status}`)
   const reader = response.body.pipeThrough(new TextDecoderStream()).getReader()
   let buffer = ''
@@ -481,3 +524,9 @@ export const addThresholdTest = (test: ThresholdTestInput) => request<Zones>('/a
 export const deleteThresholdTest = (id: number) => send(`/api/zones/tests/${id}`, { method: 'DELETE' })
 export const fetchZoneWeeks = (weeks: number, sports: 'running' | 'all') =>
   request<ZoneWeek[]>(`/api/zones/weekly?weeks=${weeks}&sports=${sports}`)
+
+export type ProfileSummary = { slug: string; name: string }
+
+export const fetchProfiles = () => request<ProfileSummary[]>('/api/profiles')
+export const saveTopic = (topic: string | null) =>
+  request<Notifications>('/api/notifications', json('PUT', { topic }))

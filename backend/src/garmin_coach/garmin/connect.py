@@ -69,6 +69,9 @@ class GarminConnectSource:
             self._client = self._login()
         return self._client
 
+    def login(self) -> None:
+        self._client = self._login()
+
     def _login(self) -> Garmin:
         self.tokens_dir.mkdir(parents=True, exist_ok=True)
         self.tokens_dir.chmod(0o700)

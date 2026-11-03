@@ -2,9 +2,9 @@ import json
 import logging
 import threading
 from collections.abc import Callable, Generator, Iterator
-from contextlib import AbstractContextManager
+from contextlib import AbstractContextManager, nullcontext
 from dataclasses import dataclass
-from datetime import datetime
+from datetime import date, datetime
 from typing import Any
 
 import anthropic
@@ -13,8 +13,9 @@ from sqlalchemy.orm import Session, sessionmaker
 
 from garmin_coach.coach.prompt import SYSTEM_PROMPT, context_block
 from garmin_coach.coach.tools import ToolContext, run_tool, tool_definitions
-from garmin_coach.coach.usage import month_spend, record_usage
+from garmin_coach.coach.usage import Spending, record_usage
 from garmin_coach.config import Settings
+from garmin_coach.metrics.load import trimp_for
 from garmin_coach.models import Conversation, Message
 
 log = logging.getLogger(__name__)
@@ -86,12 +87,19 @@ class Coach:
         stream_factory: StreamFactory | None,
         settings: CoachSettings,
         now: Callable[[], datetime] = datetime.now,
+        research: sessionmaker[Session] | None = None,
+        spending: Callable[[date], float] | None = None,
     ) -> None:
         self.sessions = sessions
+        self.research = research
+        self.spending = spending or Spending([sessions])
         self.stream_factory = stream_factory
         self.settings = settings
         self.now = now
         self._lock = threading.Lock()
+
+    def research_session(self) -> AbstractContextManager[Session | None]:
+        return nullcontext() if self.research is None else self.research()
 
     def reply(
         self,
@@ -144,7 +152,7 @@ class Coach:
             conversation = session.get(Conversation, conversation_id)
             if conversation is None:
                 return f"No conversation with id {conversation_id}"
-            spent = month_spend(session, now.date())
+            spent = self.spending(now.date())
             budget = self.settings.monthly_budget_usd
             if spent >= budget:
                 return (
@@ -243,9 +251,13 @@ class Coach:
             if not tool_uses:
                 break
             results = []
-            with self.sessions() as session:
+            with self.sessions() as session, self.research_session() as research:
                 context = ToolContext(
-                    session, self.now(), self.settings.trimp_coefficient, conversation_id
+                    session,
+                    self.now(),
+                    trimp_for(session, self.settings.trimp_coefficient),
+                    conversation_id,
+                    research,
                 )
                 for block in tool_uses:
                     yield {
@@ -267,8 +279,7 @@ class Coach:
         else:
             yield error(f"The coach stopped after {MAX_ROUNDS} rounds of tool calls.")
 
-        with self.sessions() as session:
-            spent = month_spend(session, self.now().date())
+        spent = self.spending(self.now().date())
         yield {
             "type": "done",
             "turn_cost_usd": turn_cost,

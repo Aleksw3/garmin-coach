@@ -12,7 +12,6 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session, sessionmaker
 
 from garmin_coach import raw_store
-from garmin_coach.api.app import create_app
 from garmin_coach.api.coach_routes import chat_items
 from garmin_coach.coach.agent import Coach, coach_settings
 from garmin_coach.coach.notify import Notifier
@@ -23,6 +22,7 @@ from garmin_coach.config import Settings
 from garmin_coach.models import ApiUsage, CoachNote, Conversation, Goal, Message
 from garmin_coach.normalize import rebuild_all
 from garmin_coach.sync import SyncService
+from tests.apps import single_app
 from tests.garmin_data import FakeGarmin, activity_summary, daily
 
 NOW = datetime(2026, 10, 28, 12, 0)
@@ -279,7 +279,7 @@ def test_chat_api_streams_events(seeded: sessionmaker[Session]) -> None:
         return SyncService(FakeGarmin([]), seeded, request_delay=0, sleep=lambda _: None)
 
     client = TestClient(
-        create_app(seeded, make_service, make_coach(seeded, claude), schedule_sync=False)
+        single_app(seeded, make_service, make_coach(seeded, claude), schedule_sync=False)
     )
     created = client.post("/api/conversations").json()
     with client.stream(
@@ -312,7 +312,7 @@ def test_plan_proposals_change_the_plan_only_when_accepted(seeded: sessionmaker[
     def make_service() -> SyncService:
         return SyncService(FakeGarmin([]), seeded, request_delay=0, sleep=lambda _: None)
 
-    client = TestClient(create_app(seeded, make_service, make_coach(seeded, FakeClaude([]))))
+    client = TestClient(single_app(seeded, make_service, make_coach(seeded, FakeClaude([]))))
     with seeded() as session:
         context = ToolContext(session, NOW, 1.92, conversation_id=1)
         output, ok = run_tool(
@@ -460,7 +460,7 @@ def test_proactive_messages_go_to_the_weekly_coach_thread(
     def make_service() -> SyncService:
         return SyncService(FakeGarmin([]), seeded, request_delay=0, sleep=lambda _: None)
 
-    client = TestClient(create_app(seeded, make_service, make_coach(seeded, FakeClaude([]))))
+    client = TestClient(single_app(seeded, make_service, make_coach(seeded, FakeClaude([]))))
     latest = client.get("/api/coach/latest").json()
     assert latest["text"] == "Good steady run."
     assert latest["label"] == "Feedback on Activity 1"

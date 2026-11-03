@@ -5,7 +5,8 @@ from fastapi import APIRouter, HTTPException, Response
 from pydantic import BaseModel, ConfigDict, Field
 from sqlalchemy import select
 
-from garmin_coach.api.routes import SessionDep, activity_out
+from garmin_coach.api.profile import SessionDep
+from garmin_coach.api.routes import activity_out
 from garmin_coach.api.schemas import ActivityOut
 from garmin_coach.metrics.strength import MUSCLES_BY_CATEGORY
 from garmin_coach.metrics.zones import activity_zone_seconds, current_zones

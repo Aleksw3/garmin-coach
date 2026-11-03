@@ -5,11 +5,11 @@ from fastapi.testclient import TestClient
 from sqlalchemy.orm import Session, sessionmaker
 
 from garmin_coach import raw_store
-from garmin_coach.api.app import create_app
 from garmin_coach.coach.agent import Coach, coach_settings
 from garmin_coach.config import Settings
 from garmin_coach.normalize import rebuild_all
 from garmin_coach.sync import SyncService
+from tests.apps import single_app
 from tests.garmin_data import FakeGarmin, activity_summary, daily
 
 DAY = date(2026, 10, 28)
@@ -36,7 +36,7 @@ def client(sessions: sessionmaker[Session]) -> TestClient:
         return SyncService(FakeGarmin([]), sessions, request_delay=0, sleep=lambda _: None)
 
     coach = Coach(sessions, None, coach_settings(Settings.model_construct()))
-    return TestClient(create_app(sessions, make_service, coach, schedule_sync=False))
+    return TestClient(single_app(sessions, make_service, coach, schedule_sync=False))
 
 
 def test_today(client: TestClient) -> None:

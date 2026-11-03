@@ -1,6 +1,6 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { Suspense, lazy, useEffect, useState } from 'react'
-import { fetchSyncStatus, startSync } from './api'
+import { chooseProfile, currentProfile, fetchProfiles, fetchSyncStatus, startSync, type ProfileSummary } from './api'
 import { TodayPage } from './pages/Today'
 
 const TrendsPage = lazy(() => import('./pages/Trends').then((m) => ({ default: m.TrendsPage })))
@@ -91,8 +91,76 @@ function SyncButton() {
   )
 }
 
+function ProfilePicker({
+  profiles,
+  onChoose,
+  onCancel,
+}: {
+  profiles: ProfileSummary[]
+  onChoose: (slug: string) => void
+  onCancel?: () => void
+}) {
+  return (
+    <div className="mx-auto flex min-h-[70vh] max-w-sm flex-col justify-center gap-4">
+      <h1 className="text-lg font-semibold text-primary">Who is training?</h1>
+      <ul className="space-y-2">
+        {profiles.map((profile) => (
+          <li key={profile.slug}>
+            <button
+              type="button"
+              onClick={() => onChoose(profile.slug)}
+              className="flex w-full items-center gap-3 rounded-xl border border-line bg-surface px-4 py-3 text-left hover:bg-raised"
+            >
+              <span className="flex h-9 w-9 items-center justify-center rounded-full bg-raised text-sm font-semibold text-primary">
+                {profile.name.charAt(0)}
+              </span>
+              <span className="text-base font-semibold text-primary">{profile.name}</span>
+            </button>
+          </li>
+        ))}
+      </ul>
+      <p className="text-xs text-muted">Each person has their own data, plan and coach. Research papers are shared.</p>
+      {onCancel && (
+        <button type="button" onClick={onCancel} className="self-start text-sm text-secondary">
+          Cancel
+        </button>
+      )}
+    </div>
+  )
+}
+
 export default function App() {
   const page = useHashPage()
+  const queryClient = useQueryClient()
+  const profiles = useQuery({ queryKey: ['profiles'], queryFn: fetchProfiles, staleTime: Infinity })
+  const [chosen, setChosen] = useState(currentProfile)
+  const [picking, setPicking] = useState(false)
+  const list = profiles.data
+  const active = list?.length === 1 ? list[0] : list?.find((profile) => profile.slug === chosen)
+
+  useEffect(() => {
+    if (active && active.slug !== currentProfile()) chooseProfile(active.slug)
+  }, [active])
+
+  const choose = (slug: string) => {
+    chooseProfile(slug)
+    queryClient.removeQueries({ predicate: (query) => query.queryKey[0] !== 'profiles' })
+    setChosen(slug)
+    setPicking(false)
+    window.location.hash = '#today'
+  }
+
+  if (profiles.error) {
+    return <p className="p-4 text-sm text-critical">{profiles.error.message}</p>
+  }
+  if (!list) return null
+  if (!active || picking) {
+    return (
+      <div className="px-4">
+        <ProfilePicker profiles={list} onChoose={choose} onCancel={active ? () => setPicking(false) : undefined} />
+      </div>
+    )
+  }
   return (
     <div className="mx-auto min-h-screen max-w-5xl px-4 pt-[max(1rem,env(safe-area-inset-top))] pb-10">
       <header className="mb-4 flex items-center justify-between gap-3">
@@ -110,9 +178,22 @@ export default function App() {
             </a>
           ))}
         </nav>
-        <SyncButton />
+        <div className="flex shrink-0 items-center gap-2">
+          <SyncButton key={active.slug} />
+          {list.length > 1 && (
+            <button
+              type="button"
+              onClick={() => setPicking(true)}
+              title={`${active.name}, switch profile`}
+              aria-label={`Profile ${active.name}, switch profile`}
+              className="flex h-8 w-8 items-center justify-center rounded-full border border-line bg-raised text-sm font-semibold text-primary hover:border-accent"
+            >
+              {active.name.charAt(0)}
+            </button>
+          )}
+        </div>
       </header>
-      <main>
+      <main key={active.slug}>
         <Suspense fallback={<p className="text-sm text-muted">Loading…</p>}>
           {pageElement(page)}
         </Suspense>

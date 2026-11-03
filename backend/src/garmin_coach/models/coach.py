@@ -19,6 +19,8 @@ class AthleteProfile(Base):
     injuries: Mapped[str | None] = mapped_column(Text)
     equipment: Mapped[str | None] = mapped_column(Text)
     notes: Mapped[str | None] = mapped_column(Text)
+    trimp_coefficient: Mapped[float | None] = mapped_column(Float)
+    ntfy_topic: Mapped[str | None] = mapped_column(String(200))
 
 
 class Goal(Base):

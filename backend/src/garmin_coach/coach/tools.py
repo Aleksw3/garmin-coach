@@ -66,6 +66,11 @@ class ToolContext:
     now: datetime
     trimp_coefficient: float
     conversation_id: int | None = None
+    research: Session | None = None
+
+    @property
+    def library(self) -> Session:
+        return self.research or self.session
 
     @property
     def today(self) -> date:
@@ -544,12 +549,12 @@ def propose_changes(ctx: ToolContext, args: ChangesInput) -> str:
 
 
 def search_evidence(ctx: ToolContext, args: EvidenceQuery) -> str:
-    entries = search(ctx.session, args.query)
+    entries = search(ctx.library, args.query)
     if not entries:
         return "No approved evidence matches this query"
     lines = []
     for entry in entries:
-        disputed = ctx.session.get(Evidence, entry.disputed_by_id) if entry.disputed_by_id else None
+        disputed = ctx.library.get(Evidence, entry.disputed_by_id) if entry.disputed_by_id else None
         lines.append(
             "\n".join(
                 line

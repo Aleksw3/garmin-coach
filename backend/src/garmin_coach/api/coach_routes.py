@@ -8,10 +8,10 @@ from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, ConfigDict, Field
 from sqlalchemy import func, select
 
-from garmin_coach.api.routes import SessionDep
-from garmin_coach.coach.agent import Coach
+from garmin_coach.api.profile import ProfileDep, ProfileRuntime, SessionDep
 from garmin_coach.coach.usage import month_spend, month_start
 from garmin_coach.models import ApiUsage, AthleteProfile, CoachNote, Conversation, Goal, Message
+from garmin_coach.profiles import athlete
 
 router = APIRouter(prefix="/api")
 
@@ -60,6 +60,7 @@ class ProfileIn(BaseModel):
     injuries: str | None = None
     equipment: str | None = None
     notes: str | None = None
+    trimp_coefficient: float | None = Field(default=None, ge=1.0, le=3.0)
 
 
 class ProfileOut(ProfileIn):
@@ -109,17 +110,13 @@ class UsageRowOut(BaseModel):
 
 class UsageOut(BaseModel):
     month_cost_usd: float
+    household_cost_usd: float
     budget_usd: float
     calls_this_month: int
     chat_model: str
     plan_model: str
     background_model: str
     recent: list[UsageRowOut]
-
-
-def get_coach(request: Request) -> Coach:
-    coach: Coach = request.app.state.coach
-    return coach
 
 
 def chat_items(messages: list[Message]) -> list[ChatItemOut]:
@@ -209,10 +206,10 @@ def delete_conversation(session: SessionDep, conversation_id: int) -> Response:
 
 @router.post("/conversations/{conversation_id}/messages")
 def send_message(
-    session: SessionDep, request: Request, conversation_id: int, body: NewMessage
+    session: SessionDep, profile: ProfileDep, conversation_id: int, body: NewMessage
 ) -> StreamingResponse:
     find_conversation(session, conversation_id)
-    coach = get_coach(request)
+    coach = profile.coach
 
     def events() -> Iterator[str]:
         for event in coach.reply(conversation_id, body.text, body.purpose):
@@ -292,8 +289,8 @@ def delete_note(session: SessionDep, note_id: int) -> Response:
 
 
 @router.get("/usage", response_model=UsageOut)
-def get_usage(session: SessionDep, request: Request) -> UsageOut:
-    settings = get_coach(request).settings
+def get_usage(session: SessionDep, profile: ProfileDep) -> UsageOut:
+    settings = profile.coach.settings
     today = date.today()
     calls = session.scalar(
         select(func.count(ApiUsage.id)).where(ApiUsage.created_at >= month_start(today))
@@ -303,6 +300,7 @@ def get_usage(session: SessionDep, request: Request) -> UsageOut:
     ).all()
     return UsageOut(
         month_cost_usd=month_spend(session, today),
+        household_cost_usd=profile.coach.spending(today),
         budget_usd=settings.monthly_budget_usd,
         calls_this_month=calls or 0,
         chat_model=settings.choice("chat").model,
@@ -356,22 +354,41 @@ def latest_coach_message(session: SessionDep) -> LatestCoachMessageOut | None:
     )
 
 
-@router.get("/notifications", response_model=NotificationsOut)
-def notifications(request: Request) -> NotificationsOut:
-    notifier = request.app.state.notifier
+def notifications_out(request: Request, profile: ProfileRuntime) -> NotificationsOut:
     schedule = request.app.state.schedule
+    notifier = profile.notifier
     return NotificationsOut(
         enabled=notifier.enabled,
         url=notifier.url,
         topic=notifier.topic,
-        checkin_time=schedule.checkin_time if schedule else None,
-        review=f"{schedule.review_day} {schedule.review_time}" if schedule else None,
+        checkin_time=schedule.checkin_time if schedule and profile.proactive else None,
+        review=f"{schedule.review_day} {schedule.review_time}"
+        if schedule and profile.proactive
+        else None,
     )
 
 
+@router.get("/notifications", response_model=NotificationsOut)
+def notifications(request: Request, profile: ProfileDep) -> NotificationsOut:
+    return notifications_out(request, profile)
+
+
+class TopicIn(BaseModel):
+    topic: str | None = Field(default=None, max_length=200, pattern=r"^[A-Za-z0-9_-]*$")
+
+
+@router.put("/notifications", response_model=NotificationsOut)
+def set_topic(
+    request: Request, profile: ProfileDep, session: SessionDep, body: TopicIn
+) -> NotificationsOut:
+    athlete(session).ntfy_topic = body.topic or None
+    session.commit()
+    return notifications_out(request, profile)
+
+
 @router.post("/notifications/test")
-def test_notification(request: Request) -> dict[str, bool]:
-    sent = request.app.state.notifier.send(
+def test_notification(profile: ProfileDep) -> dict[str, bool]:
+    sent = profile.notifier.send(
         "Test from your coach",
         "Notifications from the training coach reach this phone.",
         "#settings",

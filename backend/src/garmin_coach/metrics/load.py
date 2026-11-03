@@ -6,7 +6,7 @@ from datetime import date, timedelta
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
-from garmin_coach.models import Activity, DailyWellness
+from garmin_coach.models import Activity, AthleteProfile, DailyWellness
 
 ACUTE_DAYS = 7
 CHRONIC_DAYS = 42
@@ -92,3 +92,8 @@ def training_load(
         loads[activity.local_date] += activity_load(activity, resting_hr, max_hr, trimp_coefficient)
     series = load_series(loads, min(earliest, first), last)
     return [entry for entry in series if entry.day >= first]
+
+
+def trimp_for(session: Session, default: float) -> float:
+    profile = session.get(AthleteProfile, 1)
+    return profile.trimp_coefficient if profile and profile.trimp_coefficient else default

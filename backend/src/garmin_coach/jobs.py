@@ -14,6 +14,7 @@ log = logging.getLogger(__name__)
 
 SYNC_HOURS = "5-23"
 SYNC_MINUTE = 5
+SYNC_SPACING_MIN = 10
 
 
 class SyncRunner:
@@ -75,29 +76,45 @@ def hour_minute(clock: str) -> tuple[int, int]:
     return int(hour), int(minute)
 
 
+@dataclass(frozen=True)
+class ScheduledProfile:
+    slug: str
+    runner: SyncRunner
+    proactive: ProactiveCoach | None = None
+
+
 def start_scheduler(
-    runner: SyncRunner,
-    proactive: ProactiveCoach | None = None,
+    profiles: list[ScheduledProfile],
     schedule: Schedule = DEFAULT_SCHEDULE,
     fetcher: EvidenceFetcher | None = None,
 ) -> BackgroundScheduler:
     scheduler = BackgroundScheduler()
-    scheduler.add_job(
-        runner.run_recent, "cron", hour=SYNC_HOURS, minute=SYNC_MINUTE, id="recent_sync"
-    )
-    if proactive is not None:
+    for index, profile in enumerate(profiles):
+        scheduler.add_job(
+            profile.runner.run_recent,
+            "cron",
+            hour=SYNC_HOURS,
+            minute=(SYNC_MINUTE + index * SYNC_SPACING_MIN) % 60,
+            id=f"recent_sync_{profile.slug}",
+        )
+        if profile.proactive is None:
+            continue
         hour, minute = hour_minute(schedule.checkin_time)
         scheduler.add_job(
-            proactive.morning_checkin, "cron", hour=hour, minute=minute, id="morning_checkin"
+            profile.proactive.morning_checkin,
+            "cron",
+            hour=hour,
+            minute=minute,
+            id=f"morning_checkin_{profile.slug}",
         )
         hour, minute = hour_minute(schedule.review_time)
         scheduler.add_job(
-            proactive.weekly_review,
+            profile.proactive.weekly_review,
             "cron",
             day_of_week=schedule.review_day,
             hour=hour,
             minute=minute,
-            id="weekly_review",
+            id=f"weekly_review_{profile.slug}",
         )
     if fetcher is not None:
         hour, minute = hour_minute(schedule.evidence_time)

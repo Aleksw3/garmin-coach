@@ -1,9 +1,10 @@
+from collections.abc import Sequence
 from dataclasses import dataclass
 from datetime import date, datetime
 from typing import Any
 
 from sqlalchemy import func, select
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, sessionmaker
 
 from garmin_coach.models import ApiUsage
 
@@ -68,3 +69,15 @@ def month_spend(session: Session, day: date) -> float:
         select(func.sum(ApiUsage.cost_usd)).where(ApiUsage.created_at >= month_start(day))
     )
     return float(total or 0.0)
+
+
+class Spending:
+    def __init__(self, sources: Sequence[sessionmaker[Session]]) -> None:
+        self.sources = list(sources)
+
+    def __call__(self, day: date) -> float:
+        total = 0.0
+        for sessions in self.sources:
+            with sessions() as session:
+                total += month_spend(session, day)
+        return total

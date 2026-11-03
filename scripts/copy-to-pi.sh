@@ -26,7 +26,8 @@ remote() { ssh "$HOST" "$@"; }
 if pgrep -f "$COACH_PROCESS" >/dev/null; then
   echo "The coach is running on this computer:"
   pgrep -af "$COACH_PROCESS"
-  echo "Stop it first, so the copy doesn't catch a database in the middle of a write."
+  echo "Stop it first, so the copy doesn't catch a database in the middle of a write:"
+  echo "  systemctl --user stop garmin-coach, or Ctrl+C where you started it"
   exit 1
 fi
 if [[ ! -d $DATA/profiles ]]; then
@@ -40,7 +41,7 @@ if ! remote "test -x $REMOTE/scripts/install.sh"; then
   exit 1
 fi
 if remote "pgrep -f '$COACH_PROCESS'" >/dev/null; then
-  echo "The coach is running on $HOST. Stop it there first."
+  echo "The coach is running on $HOST. Stop it there first with: systemctl --user stop garmin-coach"
   exit 1
 fi
 
@@ -83,16 +84,13 @@ if [[ -f $ROOT/.env ]]; then
 fi
 
 echo
-echo "Next, run the install script on $HOST. It keeps the key and budget, installs what is" \
-  "missing and builds the web UI. Answer n when it asks to add a profile."
+echo "Next, run the install script on $HOST. It installs what is missing, builds the" \
+  "web UI and starts the coach with the copied profiles."
 if confirm "Run it now over ssh?"; then
   ssh -t "$HOST" "cd $REMOTE && ./scripts/install.sh"
 fi
 
 echo
-echo "To check the copy on $HOST:"
-echo "  cd $REMOTE/backend"
-echo "  uv run coach -p <profile> status   # counts should match this computer"
-echo "  uv run coach -p <profile> sync     # tests that the Garmin token works there"
-echo "  uv run coach serve --host 0.0.0.0"
+echo "To check the copy, open the app on $HOST, pick a profile and press Sync. That tests"
+echo "the Garmin token there. Settings shows how far back the activities go."
 echo "Leave the coach stopped on this computer from now on, so only one machine syncs."

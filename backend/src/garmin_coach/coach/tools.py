@@ -26,6 +26,12 @@ from garmin_coach.metrics.recovery import hrv_baseline, resting_hr_baseline
 from garmin_coach.metrics.running import climb_per_km, terrain
 from garmin_coach.metrics.strength import effective_sets
 from garmin_coach.metrics.summary import running_lines, strength_lines
+from garmin_coach.metrics.zones import (
+    activity_zone_seconds,
+    current_zones,
+    weekly_zone_seconds,
+    zones_line,
+)
 from garmin_coach.models import (
     Activity,
     ActivityLap,
@@ -48,6 +54,7 @@ log = logging.getLogger(__name__)
 MAX_RANGE_DAYS = 731
 MAX_WELLNESS_DAYS = 92
 MAX_ACTIVITIES = 150
+RUNNING_GROUPS = ("run", "vertical")
 MAX_LAPS = 40
 MAX_NOTES = 50
 TERRAIN_GROUPS = ("run", "vertical")
@@ -226,13 +233,31 @@ def get_activity(ctx: ToolContext, args: ActivityId) -> str:
         .where(ActivityZoneTime.activity_id == activity.id)
         .order_by(ActivityZoneTime.kind, ActivityZoneTime.zone)
     ).all()
-    for kind in ("hr", "power"):
+    own = current_zones(ctx.session)
+    own_seconds = activity_zone_seconds(ctx.session, activity.id, own) if own else []
+    if sum(own_seconds) > 0:
+        lines.append(
+            "Time in the athlete's HR zones: "
+            + ", ".join(f"Z{n} {hours_minutes(t)}" for n, t in enumerate(own_seconds, 1))
+        )
+    for kind in ("power",) if sum(own_seconds) > 0 else ("hr", "power"):
         kind_zones = [z for z in zones if z.kind == kind]
         if kind_zones:
             lines.append(
-                f"Time in {kind} zones: "
+                f"Time in Garmin {kind} zones: "
                 + ", ".join(f"Z{z.zone} {hours_minutes(z.seconds)}" for z in kind_zones)
             )
+    if activity.hr_drift_pct is not None:
+        decoupling = (
+            ""
+            if activity.decoupling_pct is None
+            else f", pace to HR decoupling {activity.decoupling_pct:.1f}%"
+        )
+        lines.append(
+            f"After a 15 min warm-up, HR went from {activity.drift_first_hr:.0f} in the first half "
+            f"to {activity.drift_second_hr:.0f} in the second: drift {activity.hr_drift_pct:.1f}%"
+            f"{decoupling}. Only meaningful for steady efforts"
+        )
     laps = ctx.session.scalars(
         select(ActivityLap)
         .where(ActivityLap.activity_id == activity.id)
@@ -272,6 +297,32 @@ def get_activity(ctx: ToolContext, args: ActivityId) -> str:
 def get_weekly_summary(ctx: ToolContext, args: DateRange) -> str:
     rows = weekly_totals(ctx.session, week_start(args.start), week_start(args.end))
     return format_weekly_totals(rows) or "No activities in this range"
+
+
+def get_zone_time(ctx: ToolContext, args: DateRange) -> str:
+    zones = current_zones(ctx.session)
+    if zones is None:
+        return "No HR zones set. The athlete can add LT1 and LT2 on the Trends page"
+    first, last = week_start(args.start), args.end
+    groups = sport_groups(ctx.session)
+    activities = ctx.session.scalars(
+        select(Activity).where(Activity.local_date >= first, Activity.local_date <= last)
+    ).all()
+    lines = [zones_line(ctx.session) or ""]
+    for label, ids in (
+        (
+            "Running and hiking",
+            [a.id for a in activities if activity_group(a, groups) in RUNNING_GROUPS],
+        ),
+        ("All training except commutes", [a.id for a in activities if not a.is_commute]),
+    ):
+        lines.append(f"{label}, minutes per zone Z1 to Z5:")
+        for week, seconds in sorted(
+            weekly_zone_seconds(ctx.session, first, last, ids, zones).items()
+        ):
+            minutes = " / ".join(f"{total / 60:.0f}" for total in seconds)
+            lines.append(f"  week from {week}: {minutes}")
+    return "\n".join(lines)
 
 
 def get_running_weeks(ctx: ToolContext, args: DateRange) -> str:
@@ -373,6 +424,7 @@ def get_profile(ctx: ToolContext, _args: ToolInput) -> str:
     lines = profile_text(ctx.session.get(AthleteProfile, 1))
     lines.append(f"Activities in the database: {first} to {last}")
     lines.append(f"Last Garmin sync: {get_state(ctx.session, LAST_SYNC) or 'never'}")
+    lines.append(zones_line(ctx.session) or "HR zones: not set")
     return "\n".join(lines)
 
 
@@ -573,6 +625,13 @@ TOOLS = (
         "back the data goes.",
         ToolInput,
         get_profile,
+    ),
+    Tool(
+        "get_zone_time",
+        "Minutes per week in each of the athlete's HR zones, for running and hiking and for all "
+        "training except commutes. Use it to check the intensity distribution.",
+        DateRange,
+        get_zone_time,
     ),
     Tool(
         "get_running_weeks",

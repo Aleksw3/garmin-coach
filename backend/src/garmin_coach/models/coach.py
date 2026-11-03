@@ -90,3 +90,16 @@ class ActivityFeedback(Base):
 
     activity_id: Mapped[int] = mapped_column(BigInteger, primary_key=True)
     created_at: Mapped[datetime] = mapped_column(DateTime)
+
+
+class ThresholdTest(Base):
+    __tablename__ = "threshold_test"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    day: Mapped[date] = mapped_column(Date, index=True)
+    lt1_hr: Mapped[int] = mapped_column(Integer)
+    lt2_hr: Mapped[int] = mapped_column(Integer)
+    method: Mapped[str] = mapped_column(String(32))
+    activity_id: Mapped[int | None] = mapped_column(BigInteger)
+    notes: Mapped[str | None] = mapped_column(Text)
+    created_at: Mapped[datetime] = mapped_column(DateTime)

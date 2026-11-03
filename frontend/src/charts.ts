@@ -1,5 +1,5 @@
 import type { EChartsCoreOption } from 'echarts/core'
-import type { GroupTotals, HrvPoint, Load, Trends } from './api'
+import type { GroupTotals, HrZone, HrvPoint, Load, Trends, ZoneWeek } from './api'
 import { addDays, number, shortDate } from './format'
 import { SPORT_GROUPS, displayGroup, type Theme } from './theme'
 
@@ -320,5 +320,55 @@ export function strengthOption(theme: Theme, weeks: string[], trends: Trends): E
         itemStyle: { borderColor: theme.surface, borderWidth: 2, borderRadius: 3 },
       },
     ],
+  }
+}
+
+function mix(low: string, high: string, share: number): string {
+  const channels = (hex: string) => [1, 3, 5].map((start) => parseInt(hex.slice(start, start + 2), 16))
+  const [a, b] = [channels(low), channels(high)]
+  return `#${a.map((value, index) => Math.round(value + (b[index] - value) * share).toString(16).padStart(2, '0')).join('')}`
+}
+
+export function zoneColor(theme: Theme, zone: number): string {
+  return mix(theme.sequentialLow, theme.sequentialHigh, (zone - 1) / 4)
+}
+
+export function zoneLabel(zone: HrZone): string {
+  if (zone.low === null) return `up to ${zone.high}`
+  if (zone.high === null) return `${zone.low}+`
+  return `${zone.low}–${zone.high}`
+}
+
+export function zoneWeeksOption(theme: Theme, weeks: ZoneWeek[], zones: HrZone[]): EChartsCoreOption {
+  const topZone = weeks.map((week) => week.seconds.reduce((top, value, index) => (value > 0 ? index : top), -1))
+  return {
+    ...base(theme, true),
+    tooltip: {
+      ...base(theme, true).tooltip,
+      trigger: 'item',
+      formatter: (p: { seriesName: string; value: number; name: string; color: string }) =>
+        `<div style="opacity:.75">Week from ${shortDate(p.name)}</div>` +
+        tooltipRow(p.color, p.seriesName, `${number(p.value, 1)} h`),
+    },
+    xAxis: {
+      type: 'category',
+      data: weeks.map((week) => week.week_start),
+      ...axisStyle(theme),
+      splitLine: { show: false },
+      axisLabel: { ...axisStyle(theme).axisLabel, formatter: shortDate },
+    },
+    yAxis: { type: 'value', ...axisStyle(theme), axisLine: { show: false } },
+    series: zones.map((zone, index) => ({
+      name: `Z${zone.number} ${zoneLabel(zone)}`,
+      type: 'bar',
+      stack: 'total',
+      barMaxWidth: BAR_MAX_WIDTH,
+      itemStyle: { color: zoneColor(theme, zone.number), borderColor: theme.surface, borderWidth: 1 },
+      emphasis: { focus: 'none' },
+      data: weeks.map((week, column) => ({
+        value: Number((week.seconds[index] / 3600).toFixed(2)),
+        itemStyle: topZone[column] === index ? { borderRadius: [4, 4, 0, 0] } : undefined,
+      })),
+    })),
   }
 }

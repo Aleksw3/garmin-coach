@@ -12,6 +12,7 @@ import {
 } from '../charts'
 import { Card, DataTable, TableToggle } from '../components/Card'
 import { Chart } from '../components/Chart'
+import { ZoneTimeCard, ZonesCard } from '../components/Zones'
 import { addDays, number, sentence, shortDate } from '../format'
 import { SPORT_GROUPS, useTheme } from '../theme'
 
@@ -43,7 +44,7 @@ function weeklyAverages(values: { day: string; value: number | null }[], weeks: 
   })
 }
 
-function TrendCharts({ trends }: { trends: Trends }) {
+function TrendCharts({ trends, weeksShown }: { trends: Trends; weeksShown: number }) {
   const theme = useTheme()
   const weeks = useMemo(() => weekLabels(trends), [trends])
   const options = useMemo(
@@ -71,6 +72,9 @@ function TrendCharts({ trends }: { trends: Trends }) {
         <Chart option={options.hours} label="Stacked weekly training hours by sport" />
         <TableToggle {...groupTable(trends, weeks, 'hours', ALL_GROUPS)} />
       </Card>
+
+      <ZonesCard />
+      <ZoneTimeCard weeks={weeksShown} />
 
       <Card title="Climbing per week" subtitle="Metres of ascent from running, hiking and skiing">
         <Chart option={options.climbing} label="Stacked weekly elevation gain" />
@@ -181,7 +185,7 @@ export function TrendsPage() {
       {error && <p className="text-sm text-critical">{error.message}</p>}
       {data && (
         <div className={isFetching ? 'opacity-60 transition-opacity' : 'transition-opacity'}>
-          <TrendCharts trends={data} />
+          <TrendCharts trends={data} weeksShown={weeks} />
         </div>
       )}
     </div>

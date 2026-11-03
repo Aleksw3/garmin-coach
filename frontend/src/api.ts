@@ -345,6 +345,10 @@ export type Lap = {
 }
 
 export type ActivityDetail = Activity & {
+  drift_first_hr: number | null
+  drift_second_hr: number | null
+  hr_drift_pct: number | null
+  decoupling_pct: number | null
   moving_s: number | null
   elevation_loss_m: number | null
   max_hr: number | null
@@ -452,3 +456,28 @@ export const updateEvidenceTopic = (id: number, topic: EvidenceTopicInput) =>
 export const deleteEvidenceTopic = (id: number) => send(`/api/evidence/topics/${id}`, { method: 'DELETE' })
 export const fetchEvidenceStatus = () => request<EvidenceFetchStatus>('/api/evidence/fetch')
 export const startEvidenceFetch = () => request<EvidenceFetchStatus>('/api/evidence/fetch', { method: 'POST' })
+
+export type ThresholdMethod = 'drift_test' | 'lab' | 'time_trial' | 'estimate'
+
+export type ThresholdTestInput = {
+  day: string
+  lt1_hr: number
+  lt2_hr: number
+  method: ThresholdMethod
+  activity_id?: number | null
+  notes?: string | null
+}
+
+export type ThresholdTest = ThresholdTestInput & { id: number }
+
+export type HrZone = { number: number; name: string; low: number | null; high: number | null }
+
+export type Zones = { current: ThresholdTest | null; zones: HrZone[]; tests: ThresholdTest[] }
+
+export type ZoneWeek = { week_start: string; seconds: number[] }
+
+export const fetchZones = () => request<Zones>('/api/zones')
+export const addThresholdTest = (test: ThresholdTestInput) => request<Zones>('/api/zones/tests', json('POST', test))
+export const deleteThresholdTest = (id: number) => send(`/api/zones/tests/${id}`, { method: 'DELETE' })
+export const fetchZoneWeeks = (weeks: number, sports: 'running' | 'all') =>
+  request<ZoneWeek[]>(`/api/zones/weekly?weeks=${weeks}&sports=${sports}`)

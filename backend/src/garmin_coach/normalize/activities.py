@@ -5,7 +5,14 @@ from sqlalchemy import delete
 from sqlalchemy.orm import Session
 
 from garmin_coach import raw_store
-from garmin_coach.models import Activity, ActivityLap, ActivityZoneTime, StrengthSet
+from garmin_coach.metrics.heart_rate import drift, histogram, samples
+from garmin_coach.models import (
+    Activity,
+    ActivityHeartRate,
+    ActivityLap,
+    ActivityZoneTime,
+    StrengthSet,
+)
 
 GRAMS_PER_KG = 1000
 ZONE_COUNT = 5
@@ -149,7 +156,7 @@ def normalize_activity(session: Session, activity_id: int) -> Activity | None:
         activity.commute_override = existing.commute_override
     activity = session.merge(activity)
 
-    for child in (ActivityLap, ActivityZoneTime, StrengthSet):
+    for child in (ActivityLap, ActivityZoneTime, StrengthSet, ActivityHeartRate):
         session.execute(delete(child).where(child.activity_id == activity_id))
 
     splits = raw_store.get_activity(session, activity_id, "splits")
@@ -158,6 +165,18 @@ def normalize_activity(session: Session, activity_id: int) -> Activity | None:
 
     hr_zones = raw_store.get_activity(session, activity_id, "hr_zones")
     session.add_all(zones_from_summary(activity_id, summary, hr_zones))
+
+    heart_rate = samples(raw_store.get_activity(session, activity_id, "details"))
+    session.add_all(
+        ActivityHeartRate(activity_id=activity_id, bpm=bpm, seconds=seconds)
+        for bpm, seconds in histogram(heart_rate).items()
+    )
+    steady = drift(heart_rate)
+    if steady is not None:
+        activity.drift_first_hr = steady.first_half_hr
+        activity.drift_second_hr = steady.second_half_hr
+        activity.hr_drift_pct = steady.drift_pct
+        activity.decoupling_pct = steady.decoupling_pct
 
     exercise_sets = raw_store.get_activity(session, activity_id, "exercise_sets")
     if exercise_sets:

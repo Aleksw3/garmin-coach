@@ -1,6 +1,7 @@
-import { useMutation, useQueryClient } from '@tanstack/react-query'
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { useEffect, useRef, type ReactNode } from 'react'
-import { deleteSession, setSkipped, type Exercise, type PlannedSession, type Step } from '../api'
+import { deleteSession, fetchZones, setSkipped, type Exercise, type PlannedSession, type Step } from '../api'
+import { zoneLabel } from '../charts'
 import { dayLabel, number } from '../format'
 import { sessionStatus } from '../sessions'
 import { groupColor, groupLabel, useTheme } from '../theme'
@@ -18,8 +19,19 @@ function size(duration: number | null | undefined, distance: number | null | und
     .join(' or ')
 }
 
-function Target({ children }: { children: ReactNode }) {
-  return <span className="rounded-md bg-raised px-1.5 py-0.5 text-xs font-medium text-primary">{children}</span>
+function Target({ text }: { text: string }) {
+  const zones = useQuery({ queryKey: ['zones'], queryFn: fetchZones })
+  const numbers = [...text.matchAll(/Z([1-5])/g)].map((match) => Number(match[1]))
+  const shown = zones.data?.zones.filter((zone) => numbers.includes(zone.number)) ?? []
+  const low = shown[0]
+  const high = shown[shown.length - 1]
+  const range = !low || /bpm/.test(text) ? null : zoneLabel({ ...low, high: high.high })
+  return (
+    <span className="rounded-md bg-raised px-1.5 py-0.5 text-xs font-medium text-primary">
+      {text}
+      {range && <span className="text-secondary">, {range} bpm</span>}
+    </span>
+  )
 }
 
 function StepRow({ step }: { step: Step }) {
@@ -32,7 +44,7 @@ function StepRow({ step }: { step: Step }) {
           <span className="font-semibold">
             {step.repeats ? `${step.repeats} × ${amount || 'repeat'}` : amount || STEP_LABELS[step.kind]}
           </span>
-          {step.target && <Target>{step.target}</Target>}
+          {step.target && <Target text={step.target} />}
         </p>
         {step.recovery && <p className="text-xs text-secondary">Recovery: {step.recovery}</p>}
         {step.note && <p className="text-xs text-muted">{step.note}</p>}

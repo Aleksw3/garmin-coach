@@ -11,6 +11,7 @@ from garmin_coach.api.coach_routes import router as coach_router
 from garmin_coach.api.evidence_routes import router as evidence_router
 from garmin_coach.api.plan_routes import router as plan_router
 from garmin_coach.api.routes import router
+from garmin_coach.api.zone_routes import router as zone_router
 from garmin_coach.coach.agent import Coach
 from garmin_coach.coach.notify import NO_NOTIFIER, Notifier
 from garmin_coach.coach.proactive import ProactiveCoach
@@ -61,6 +62,7 @@ def create_app(
     app.include_router(plan_router)
     app.include_router(activity_router)
     app.include_router(evidence_router)
+    app.include_router(zone_router)
 
     @app.get("/health")
     def health() -> dict[str, str]:

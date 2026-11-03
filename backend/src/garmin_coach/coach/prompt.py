@@ -3,6 +3,7 @@ from datetime import date, datetime
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
+from garmin_coach.metrics.zones import zones_line
 from garmin_coach.models import Activity, DailyWellness, Goal
 from garmin_coach.reports import week_start, weekly_totals
 from garmin_coach.sync import LAST_SYNC, get_state
@@ -58,6 +59,9 @@ rejects each proposal on the Plan page. Never say a change is made before it is 
 - Before proposing, read the profile (training days, injuries, equipment), the goals, the \
 current plan, the last 4 to 8 weeks of training and recent recovery. Build from what the \
 athlete has actually done, not from a template.
+- HR zones follow Uphill Athlete's five zones from the athlete's own LT1 and LT2: zone 2 \
+ends at LT1 and zone 3 at LT2. Give targets as these zones and use bpm from the context \
+block when it helps.
 - Plan principles: most volume easy (HR zone 1 to 2), one or two harder sessions a week, \
 weekly volume up by about 10% at most, an easier week every third or fourth week, and \
 strength twice a week with single-leg and eccentric work for mountain running. Make the \
@@ -146,5 +150,6 @@ def context_block(session: Session, now: datetime) -> str:
         recovery_line(session, today),
         week_line(session, today),
         goals_line(session),
+        zones_line(session) or "HR zones: not set, Garmin's zones are the fallback",
     ]
     return "<context>\n" + "\n".join(lines) + "\n</context>"

@@ -1,6 +1,14 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { useState, type FormEvent } from 'react'
-import { editSet, fetchActivity, restoreSet, type ActivityDetail, type StrengthSetRow } from '../api'
+import {
+  addThresholdTest,
+  editSet,
+  fetchActivity,
+  fetchZones,
+  restoreSet,
+  type ActivityDetail,
+  type StrengthSetRow,
+} from '../api'
 import { Card, DataTable } from '../components/Card'
 import { StatTile } from '../components/StatTile'
 import { duration, number, sentence } from '../format'
@@ -56,11 +64,15 @@ function Stats({ activity }: { activity: ActivityDetail }) {
 }
 
 function Zones({ activity }: { activity: ActivityDetail }) {
-  const zones = activity.zones.filter((zone) => zone.kind === 'hr')
+  const own = activity.zones.filter((zone) => zone.kind === 'own')
+  const zones = own.length > 0 ? own : activity.zones.filter((zone) => zone.kind === 'hr')
   const total = zones.reduce((sum, zone) => sum + zone.seconds, 0)
   if (total === 0) return null
   return (
-    <Card title="Time in heart rate zones">
+    <Card
+      title="Time in heart rate zones"
+      subtitle={own.length > 0 ? 'Your zones from LT1 and LT2' : "Garmin's zones. Add LT1 and LT2 on Trends to use your own"}
+    >
       <ul className="space-y-1.5">
         {zones.map((zone) => (
           <li key={zone.zone} className="flex items-center gap-3 text-xs">
@@ -80,6 +92,62 @@ function Zones({ activity }: { activity: ActivityDetail }) {
           </li>
         ))}
       </ul>
+    </Card>
+  )
+}
+
+function Drift({ activity }: { activity: ActivityDetail }) {
+  const queryClient = useQueryClient()
+  const zones = useQuery({ queryKey: ['zones'], queryFn: fetchZones })
+  const [saved, setSaved] = useState(false)
+  const lt1 = Math.round(activity.drift_first_hr ?? 0)
+  const save = useMutation({
+    mutationFn: () =>
+      addThresholdTest({
+        day: activity.start_time_local.slice(0, 10),
+        lt1_hr: lt1,
+        lt2_hr: zones.data?.current?.lt2_hr ?? 0,
+        method: 'drift_test',
+        activity_id: activity.id,
+        notes: `Drift ${number(activity.hr_drift_pct, 1)}% after a 15 min warm-up`,
+      }),
+    onSuccess: async () => {
+      setSaved(true)
+      await queryClient.invalidateQueries({ queryKey: ['zones'] })
+      await queryClient.invalidateQueries({ queryKey: ['activity', activity.id] })
+    },
+  })
+  if (activity.hr_drift_pct === null || !['run', 'vertical'].includes(activity.sport_group)) return null
+  const drift = activity.hr_drift_pct
+  const verdict =
+    drift < 3.5
+      ? 'Under 3.5%: this pace was below LT1. Try a little faster next time.'
+      : drift <= 5
+        ? '3.5 to 5%: this pace was close to LT1.'
+        : 'Over 5%: this pace was above LT1, or the run was not steady.'
+  const lt2 = zones.data?.current?.lt2_hr
+  return (
+    <Card title="Heart rate drift" subtitle="First half against second half after a 15 min warm-up">
+      <div className="grid grid-cols-3 gap-2">
+        <StatTile label="First half" value={`${number(activity.drift_first_hr)} bpm`} detail={null} />
+        <StatTile label="Second half" value={`${number(activity.drift_second_hr)} bpm`} detail={null} />
+        <StatTile
+          label="Drift"
+          value={`${number(drift, 1)}%`}
+          detail={activity.decoupling_pct !== null ? `pace to HR ${number(activity.decoupling_pct, 1)}%` : null}
+        />
+      </div>
+      <p className="mt-3 text-sm text-secondary">{verdict}</p>
+      <p className="mt-1 text-xs text-muted">
+        Only meaningful for a steady pace on flat ground or a treadmill, like the LT1 test.
+      </p>
+      {drift >= 2 && drift <= 5 && lt2 !== undefined && lt1 < lt2 && !saved && (
+        <button type="button" onClick={() => save.mutate()} className="mt-2 text-sm text-accent">
+          Use as an LT1 test: LT1 {lt1} bpm, the first half average
+        </button>
+      )}
+      {saved && <p className="mt-2 text-sm text-secondary">Saved. Your zones now use LT1 {lt1}.</p>}
+      {save.error && <p className="mt-2 text-xs text-critical">{save.error.message}</p>}
     </Card>
   )
 }
@@ -299,6 +367,7 @@ export function ActivityPage({ id }: { id: number }) {
       <div className="grid gap-4 lg:grid-cols-2">
         {data.planned && <Planned planned={data.planned} />}
         <Zones activity={data} />
+        <Drift activity={data} />
         <StrengthSets activity={data} />
         <Laps activity={data} />
       </div>

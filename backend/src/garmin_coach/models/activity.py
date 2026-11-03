@@ -49,6 +49,20 @@ class Activity(Base):
     lap_count: Mapped[int | None] = mapped_column(Integer)
     is_commute: Mapped[bool] = mapped_column(Boolean, default=False)
     commute_override: Mapped[bool | None] = mapped_column(Boolean)
+    drift_first_hr: Mapped[float | None] = mapped_column(Float)
+    drift_second_hr: Mapped[float | None] = mapped_column(Float)
+    hr_drift_pct: Mapped[float | None] = mapped_column(Float)
+    decoupling_pct: Mapped[float | None] = mapped_column(Float)
+
+
+class ActivityHeartRate(Base):
+    __tablename__ = "activity_heart_rate"
+
+    activity_id: Mapped[int] = mapped_column(
+        ForeignKey("activity.id", ondelete="CASCADE"), primary_key=True
+    )
+    bpm: Mapped[int] = mapped_column(Integer, primary_key=True)
+    seconds: Mapped[float] = mapped_column(Float)
 
 
 class ActivityLap(Base):

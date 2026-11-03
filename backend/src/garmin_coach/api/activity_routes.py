@@ -8,6 +8,7 @@ from sqlalchemy import select
 from garmin_coach.api.routes import SessionDep, activity_out
 from garmin_coach.api.schemas import ActivityOut
 from garmin_coach.metrics.strength import MUSCLES_BY_CATEGORY
+from garmin_coach.metrics.zones import activity_zone_seconds, current_zones
 from garmin_coach.models import (
     Activity,
     ActivityLap,
@@ -90,6 +91,10 @@ class ActivityDetailOut(ActivityOut):
     sets: list[SetOut]
     planned: PlannedMatchOut | None
     exercise_categories: list[str]
+    drift_first_hr: float | None
+    drift_second_hr: float | None
+    hr_drift_pct: float | None
+    decoupling_pct: float | None
 
 
 def find_activity(session: SessionDep, activity_id: int) -> Activity:
@@ -154,6 +159,19 @@ def planned_match(session: SessionDep, activity_id: int) -> PlannedMatchOut | No
     )
 
 
+def own_zones(session: SessionDep, activity_id: int) -> list[ZoneOut]:
+    zones = current_zones(session)
+    if zones is None:
+        return []
+    seconds = activity_zone_seconds(session, activity_id, zones)
+    if sum(seconds) == 0:
+        return []
+    return [
+        ZoneOut(kind="own", zone=zone.number, seconds=total, low_boundary=zone.low)
+        for zone, total in zip(zones, seconds, strict=True)
+    ]
+
+
 @router.get("/activities/{activity_id}", response_model=ActivityDetailOut)
 def get_activity(session: SessionDep, activity_id: int) -> ActivityDetailOut:
     activity = find_activity(session, activity_id)
@@ -182,10 +200,14 @@ def get_activity(session: SessionDep, activity_id: int) -> ActivityDetailOut:
         training_effect_label=activity.training_effect_label,
         location_name=activity.location_name,
         laps=[LapOut.model_validate(lap) for lap in laps],
-        zones=[ZoneOut.model_validate(zone) for zone in zones],
+        zones=[ZoneOut.model_validate(zone) for zone in zones] + own_zones(session, activity_id),
         sets=strength_sets(session, activity_id),
         planned=planned_match(session, activity_id),
         exercise_categories=sorted(MUSCLES_BY_CATEGORY),
+        drift_first_hr=activity.drift_first_hr,
+        drift_second_hr=activity.drift_second_hr,
+        hr_drift_pct=activity.hr_drift_pct,
+        decoupling_pct=activity.decoupling_pct,
     )
 
 

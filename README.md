@@ -4,39 +4,29 @@ A self-hosted training coach. It syncs Garmin data to a home server and uses Cla
 
 ## Setup
 
-You need [uv](https://docs.astral.sh/uv/) (`curl -LsSf https://astral.sh/uv/install.sh | sh`), Node 20 or newer, and an Anthropic API key from https://platform.claude.com.
+1. Get an Anthropic API key with credits. The API is prepaid and separate from a Claude.ai Pro or Max subscription, so the coach does nothing until the account has credits.
+   1. Sign in or create an account at https://platform.claude.com.
+   2. Open Settings > Billing and press Buy credits. Credits expire a year after you buy them. Leave auto-reload off to make the credits you bought the most you can ever spend. The app also has its own monthly budget, set in the next step.
+   3. Open Settings > API keys and press Create key. Copy the key right away, because the console shows it only once. It starts with `sk-ant-`.
+2. Run the install script from the repo root:
+   ```
+   ./scripts/install.sh
+   ```
+   It explains each step and asks for what it needs:
+   - It installs uv if it is missing, and checks for Node 20 or newer.
+   - It asks for the API key, checks it against Anthropic and saves it in `.env`.
+   - It asks for the monthly budget in dollars, shared by all profiles and the research library.
+   - It installs the Python packages and builds the web UI.
+   - For each person, it asks for a short name, a display name and the TRIMP factor (1.92 for men, 1.67 for women). It then logs in to Garmin and asks how many days of history to fetch.
 
-1. Clone the repo and create a `.env` file at the repo root:
-   ```
-   ANTHROPIC_API_KEY=sk-ant-...
-   MONTHLY_BUDGET_USD=5
-   ```
-2. Build the web UI:
-   ```
-   cd frontend
-   npm install
-   npm run build
-   cd ..
-   ```
-3. Create a profile for each person. The name is lowercase and is used in paths. Use `--trimp 1.92` for men and `1.67` for women.
+   Run it again later to add a profile or to change the key or budget.
+3. Start the server. It serves the app on http://127.0.0.1:8000 and syncs every profile with Garmin each hour from 05:00 to 23:00.
    ```
    cd backend
-   uv run coach profile add kari --name Kari --trimp 1.67
-   ```
-4. Log in to Garmin for each profile. It asks for the email, password and 2FA code, and saves tokens so later syncs don't need them.
-   ```
-   uv run coach -p kari login
-   ```
-5. Fetch the history. Two years takes a while, and the command resumes where it stopped if it is interrupted.
-   ```
-   uv run coach -p kari backfill --days 730
-   ```
-6. Start the server. It serves the app on http://127.0.0.1:8000 and syncs every profile with Garmin each hour from 05:00 to 23:00.
-   ```
    uv run coach serve
    ```
    Use `--host 0.0.0.0` to reach it from other machines on the VPN. The app has no login, so anyone who can reach it sees every profile.
-7. In the app, pick your profile and set it up:
+4. In the app, pick your profile and set it up:
    - On Goals, add your goals and check the TRIMP factor.
    - On Trends, add your LT1 and LT2 heart rates to get your zones.
    - On Settings, enter an [ntfy](https://ntfy.sh) topic to get the coach's messages on your phone. Pick a long name that is hard to guess and subscribe to it in the ntfy app.
@@ -44,9 +34,23 @@ You need [uv](https://docs.astral.sh/uv/) (`curl -LsSf https://astral.sh/uv/inst
 
 Restart the server after adding a profile. Run only one of `coach serve`, a manual `coach backfill` or the Docker container against the same `data/` at a time, so two syncs don't talk to Garmin at once.
 
+### Without the script
+
+Put `ANTHROPIC_API_KEY=sk-ant-...` and `MONTHLY_BUDGET_USD=5` in a `.env` file at the repo root, then:
+
+```
+cd frontend && npm install && npm run build && cd ..
+cd backend
+uv run coach profile add kari --name Kari --trimp 1.67
+uv run coach -p kari login
+uv run coach -p kari backfill --days 730
+```
+
+The backfill takes a couple of hours for two years. If it stops, the same command continues where it left off.
+
 ### With Docker
 
-Steps 1 and 7 are the same. The image builds the web UI, and `data/` is mounted into the container.
+Steps 1 and 4 are the same. Write `.env` by hand as described under "Without the script". The image builds the web UI, and `data/` is mounted into the container.
 
 ```
 docker compose build

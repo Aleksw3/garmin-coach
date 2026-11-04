@@ -75,6 +75,21 @@ def test_sessions_match_activities_with_compliance(plan: sessionmaker[Session]) 
     assert 4 not in matches
 
 
+def test_extra_activity_stays_on_a_day_with_its_own_session(
+    plan: sessionmaker[Session],
+) -> None:
+    with plan() as session:
+        session.add(planned("2026-10-27", "run", "Hill repeats", duration_min=60))
+        session.commit()
+        match_sessions(session, date(2026, 10, 26), date(2026, 11, 1))
+        session.commit()
+        matched = {m.planned_session_id: m.activity_id for m in session.query(SessionMatch)}
+
+    assert matched[1] == 11
+    assert 10 not in matched.values()
+    assert 5 not in matched
+
+
 def test_activity_page_and_set_editor(plan: sessionmaker[Session]) -> None:
     def make_service() -> SyncService:
         return SyncService(FakeGarmin([]), plan, request_delay=0, sleep=lambda _: None)

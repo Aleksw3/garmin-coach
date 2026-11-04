@@ -63,6 +63,20 @@ def match_sessions(session: Session, first: date, last: date) -> int:
         )
         if not activity.is_commute and activity.id not in taken
     ]
+    neighbours = session.scalars(
+        select(PlannedSession).where(
+            PlannedSession.day >= first - timedelta(days=1),
+            PlannedSession.day <= last + timedelta(days=1),
+        )
+    ).all()
+
+    def planned_on_its_day(activity: Activity) -> bool:
+        group = groups.get(activity.type_key, OTHER)
+        return any(
+            p.day == activity.local_date and group in MATCHING_GROUPS.get(p.sport, set())
+            for p in neighbours
+        )
+
     open_rows = [r for r in rows if not r.skipped and r.sport in MATCHING_GROUPS]
     matched = 0
     for days_apart in (0, 1):
@@ -73,6 +87,7 @@ def match_sessions(session: Session, first: date, last: date) -> int:
                 if a.id not in taken
                 and groups.get(a.type_key, OTHER) in MATCHING_GROUPS[row.sport]
                 and abs((a.local_date - row.day).days) == days_apart
+                and (days_apart == 0 or not planned_on_its_day(a))
             ]
             if not candidates:
                 continue

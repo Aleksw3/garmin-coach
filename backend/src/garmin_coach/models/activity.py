@@ -1,6 +1,18 @@
 from datetime import date, datetime
+from typing import Any
 
-from sqlalchemy import BigInteger, Boolean, Date, DateTime, Float, ForeignKey, Integer, String
+from sqlalchemy import (
+    JSON,
+    BigInteger,
+    Boolean,
+    Date,
+    DateTime,
+    Float,
+    ForeignKey,
+    Integer,
+    String,
+    false,
+)
 from sqlalchemy.orm import Mapped, mapped_column
 
 from garmin_coach.db import Base
@@ -53,6 +65,7 @@ class Activity(Base):
     drift_second_hr: Mapped[float | None] = mapped_column(Float)
     hr_drift_pct: Mapped[float | None] = mapped_column(Float)
     decoupling_pct: Mapped[float | None] = mapped_column(Float)
+    climbs_scanned: Mapped[bool] = mapped_column(Boolean, default=False, server_default=false())
 
 
 class ActivityHeartRate(Base):
@@ -96,6 +109,21 @@ class ActivityZoneTime(Base):
     zone: Mapped[int] = mapped_column(Integer, primary_key=True)
     seconds: Mapped[float] = mapped_column(Float)
     low_boundary: Mapped[float | None] = mapped_column(Float)
+
+
+class Climb(Base):
+    __tablename__ = "climb"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    activity_id: Mapped[int] = mapped_column(
+        ForeignKey("activity.id", ondelete="CASCADE"), index=True
+    )
+    start_lat: Mapped[float] = mapped_column(Float)
+    start_lon: Mapped[float] = mapped_column(Float)
+    length_m: Mapped[float] = mapped_column(Float)
+    gain_m: Mapped[float] = mapped_column(Float)
+    seconds: Mapped[float] = mapped_column(Float)
+    track: Mapped[list[Any]] = mapped_column(JSON)
 
 
 class StrengthSet(Base):

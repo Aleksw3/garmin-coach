@@ -277,6 +277,7 @@ export type Step = {
   duration_min?: number | null
   distance_km?: number | null
   repeats?: number | null
+  grade_pct?: number | null
   target?: string | null
   recovery?: string | null
   note?: string | null
@@ -524,6 +525,27 @@ export const addThresholdTest = (test: ThresholdTestInput) => request<Zones>('/a
 export const deleteThresholdTest = (id: number) => send(`/api/zones/tests/${id}`, { method: 'DELETE' })
 export const fetchZoneWeeks = (weeks: number, sports: 'running' | 'all') =>
   request<ZoneWeek[]>(`/api/zones/weekly?weeks=${weeks}&sports=${sports}`)
+
+export type Hill = {
+  start: [number, number]
+  end: [number, number]
+  length_m: number
+  gain_m: number
+  grade_pct: number
+  steepest_pct: number
+  rep_seconds: number
+  away_m: number
+  visits: number
+  last_day: string
+  map_url: string
+}
+
+export type Hills = { flat_speed_mps: number; speed_from_data: boolean; hills: Hill[] }
+
+export const fetchHills = (minutes: number | null, meters: number | null, grade: number) =>
+  request<Hills>(
+    `/api/hills?grade=${grade}&` + (minutes !== null ? `minutes=${minutes}` : `meters=${meters}`),
+  )
 
 export type ProfileSummary = { slug: string; name: string }
 

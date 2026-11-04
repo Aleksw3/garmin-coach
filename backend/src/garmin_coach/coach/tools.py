@@ -21,6 +21,7 @@ from garmin_coach.coach.plan import (
     sessions_between,
 )
 from garmin_coach.evidence.library import citation, search
+from garmin_coach.metrics.hills import find_hills
 from garmin_coach.metrics.load import training_load
 from garmin_coach.metrics.recovery import hrv_baseline, resting_hr_baseline
 from garmin_coach.metrics.running import climb_per_km, terrain
@@ -128,6 +129,31 @@ class EvidenceQuery(ToolInput):
         max_length=300,
         description="Plain words, for example strength training runners",
     )
+
+
+class HillQuery(ToolInput):
+    rep_minutes: float | None = Field(
+        default=None, gt=0, le=30, description="Length of one repeat in minutes"
+    )
+    rep_meters: float | None = Field(
+        default=None, gt=0, le=5000, description="Or the length of one repeat in meters"
+    )
+    grade_pct: float = Field(default=8, ge=2, le=40, description="Target gradient in percent")
+    tolerance_pct: float = Field(
+        default=2, ge=0.5, le=10, description="How far the gradient may be from the target"
+    )
+    near: str | None = Field(
+        default=None,
+        max_length=100,
+        description="Place name from the activities, for example Oppdal. Leave empty for home",
+    )
+    max_km: float = Field(default=10, gt=0, le=100, description="Search radius in km")
+
+    @model_validator(mode="after")
+    def check_length(self) -> Self:
+        if (self.rep_minutes is None) == (self.rep_meters is None):
+            raise ValueError("give either rep_minutes or rep_meters")
+        return self
 
 
 class ProposalText(ToolInput):
@@ -579,6 +605,56 @@ def search_evidence(ctx: ToolContext, args: EvidenceQuery) -> str:
     return "\n".join(lines)
 
 
+def minutes_seconds(seconds: float) -> str:
+    whole = round(seconds)
+    return f"{whole // 60}:{whole % 60:02d}"
+
+
+def get_hills(ctx: ToolContext, args: HillQuery) -> str:
+    result = find_hills(
+        ctx.session,
+        ctx.today,
+        args.grade_pct,
+        args.tolerance_pct,
+        rep_minutes=args.rep_minutes,
+        rep_meters=args.rep_meters,
+        near=args.near,
+        max_km=args.max_km,
+    )
+    if result.center is None:
+        return f"No activities with GPS{f' at {args.near}' if args.near else ''}"
+    place = args.near or "home (the most common start point of the last 180 days)"
+    effort = result.effort
+    lines = [
+        f"Hills within {args.max_km:g} km of {place} with "
+        f"{args.grade_pct - args.tolerance_pct:g} to {args.grade_pct + args.tolerance_pct:g}% "
+        "gradient, found in the athlete's own GPS tracks, nearest first.",
+        f"Repeat time assumes hard uphill effort at {pace(effort.flat_speed_mps)} "
+        + (
+            "flat-equivalent, the fastest 5% of the athlete's run climbs in the last year."
+            if effort.from_data
+            else "flat-equivalent, a default because there are too few run climbs."
+        ),
+    ]
+    if not result.hills:
+        lines.append("No hill fits. Try a wider gradient tolerance or a larger radius")
+    for hill in result.hills:
+        lines.append(
+            joined(
+                [
+                    f"{hill.away_m / 1000:.1f} km away",
+                    f"{hill.length_m:.0f} m at {100 * hill.grade:.1f}%, "
+                    f"steepest 100 m {100 * hill.steepest_grade:.0f}%",
+                    f"{hill.gain_m:.0f} m up",
+                    f"about {minutes_seconds(hill.rep_seconds)} per repeat",
+                    f"on {hill.visits} activities, last {hill.last_day}",
+                    f"map {hill.map_url()}",
+                ]
+            )
+        )
+    return "\n".join(lines)
+
+
 def save_note(ctx: ToolContext, args: NewNote) -> str:
     note = CoachNote(created_at=datetime.now(), text=args.text)
     ctx.session.add(note)
@@ -611,6 +687,14 @@ TOOLS = (
         "that are still waiting for the athlete.",
         DateRange,
         get_plan,
+    ),
+    Tool(
+        "get_hills",
+        "Hills for hill repeats from the athlete's own GPS tracks: sections that take about the "
+        "given repeat time or length at the given gradient, with distance from home or a named "
+        "place, steepest pitch, how often the athlete has been there and a map link.",
+        HillQuery,
+        get_hills,
     ),
     Tool(
         "get_load",

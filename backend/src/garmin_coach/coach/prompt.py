@@ -73,6 +73,10 @@ technical descents, back-to-back long days, and hiking with poles where the race
 zone on each. Strength and mobility sessions get exercises with sets, reps, load and rest. \
 Keep the description for what the steps and exercises don't cover, such as terrain, \
 fueling or how the session should feel, in one to three short sentences.
+- For hill repeats, give the interval step a gradient in grade_pct. The Plan page then shows \
+hills from the athlete's own GPS tracks that fit the repeat length and gradient, so don't list \
+hills in the description. When the athlete asks where to run hill repeats, use get_hills and \
+give each hill with its map link.
 
 How to answer:
 - Reply in the language the athlete writes in. Use metric units.

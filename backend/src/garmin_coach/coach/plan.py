@@ -31,6 +31,9 @@ class Step(BaseModel):
         default=None, gt=0, le=100, description="For intervals, the length of one repeat"
     )
     repeats: int | None = Field(default=None, ge=1, le=50, description="Only for intervals")
+    grade_pct: float | None = Field(
+        default=None, ge=1, le=40, description="For hill repeats, the gradient in percent"
+    )
     target: str | None = Field(
         default=None, max_length=100, description="HR zone or effort, for example Z2 or Z3"
     )
@@ -270,6 +273,8 @@ def step_text(step: Step) -> str:
     if step.repeats:
         size = f"{step.repeats}x {size}".strip()
     parts = [step.kind, size, step.target]
+    if step.grade_pct:
+        parts.append(f"at {step.grade_pct:g}% gradient")
     if step.recovery:
         parts.append(f"recovery {step.recovery}")
     parts.append(step.note)

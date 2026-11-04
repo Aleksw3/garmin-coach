@@ -1,10 +1,20 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { useEffect, useRef, type ReactNode } from 'react'
-import { deleteSession, fetchZones, setSkipped, type Exercise, type PlannedSession, type Step } from '../api'
+import {
+  deleteSession,
+  fetchHills,
+  fetchZones,
+  setSkipped,
+  type Exercise,
+  type PlannedSession,
+  type Step,
+} from '../api'
 import { zoneLabel } from '../charts'
-import { dayLabel, number } from '../format'
+import { dayLabel, number, shortDate } from '../format'
 import { sessionStatus } from '../sessions'
 import { groupColor, groupLabel, useTheme } from '../theme'
+
+const DEFAULT_HILL_GRADE = 8
 
 const STEP_LABELS: Record<Step['kind'], string> = {
   warmup: 'Warm-up',
@@ -43,6 +53,7 @@ function StepRow({ step }: { step: Step }) {
         <p className="flex flex-wrap items-center gap-2 text-sm text-primary">
           <span className="font-semibold">
             {step.repeats ? `${step.repeats} × ${amount || 'repeat'}` : amount || STEP_LABELS[step.kind]}
+            {step.grade_pct ? ` at ${number(step.grade_pct)}%` : ''}
           </span>
           {step.target && <Target text={step.target} />}
         </p>
@@ -50,6 +61,60 @@ function StepRow({ step }: { step: Step }) {
         {step.note && <p className="text-xs text-muted">{step.note}</p>}
       </div>
     </li>
+  )
+}
+
+type HillRep = { minutes: number | null; meters: number | null; grade: number }
+
+function hillRep(session: PlannedSession): HillRep | null {
+  const step = session.steps.find(
+    (candidate) => candidate.kind === 'intervals' && (candidate.grade_pct || session.kind === 'hills'),
+  )
+  if (!step || !(step.duration_min || step.distance_km)) return null
+  return {
+    minutes: step.duration_min ?? null,
+    meters: step.duration_min ? null : (step.distance_km ?? 0) * 1000,
+    grade: step.grade_pct ?? DEFAULT_HILL_GRADE,
+  }
+}
+
+function minutesSeconds(seconds: number): string {
+  const whole = Math.round(seconds)
+  return `${Math.floor(whole / 60)}:${(whole % 60).toString().padStart(2, '0')}`
+}
+
+function HillSuggestions({ rep }: { rep: HillRep }) {
+  const hills = useQuery({
+    queryKey: ['hills', rep.minutes, rep.meters, rep.grade],
+    queryFn: () => fetchHills(rep.minutes, rep.meters, rep.grade),
+  })
+  if (hills.isPending) return <p className="text-sm text-muted">Looking through your GPS tracks…</p>
+  if (hills.isError) return <p className="text-sm text-critical">Could not load hills</p>
+  if (hills.data.hills.length === 0) {
+    return <p className="text-sm text-secondary">None of your GPS tracks within 10 km has a hill that fits.</p>
+  }
+  return (
+    <ul className="divide-y divide-[var(--border)]">
+      {hills.data.hills.map((hill) => (
+        <li key={hill.map_url} className="flex items-start justify-between gap-3 py-2.5">
+          <div className="min-w-0 space-y-0.5">
+            <p className="text-sm font-semibold text-primary">
+              {number(hill.length_m)} m at {number(hill.grade_pct, 1)}%, {number(hill.gain_m)} m up
+            </p>
+            <p className="text-xs text-secondary">
+              {number(hill.away_m / 1000, 1)} km from home, about {minutesSeconds(hill.rep_seconds)} per repeat,
+              steepest {number(hill.steepest_pct)}%
+            </p>
+            <p className="text-xs text-muted">
+              On {hill.visits} of your activities, last {shortDate(hill.last_day)}
+            </p>
+          </div>
+          <a href={hill.map_url} target="_blank" rel="noreferrer" className="shrink-0 text-sm font-semibold text-accent">
+            Map
+          </a>
+        </li>
+      ))}
+    </ul>
   )
 }
 
@@ -127,6 +192,7 @@ export function SessionDialog({
   }, [])
 
   const status = sessionStatus(session, today)
+  const rep = session.match ? null : hillRep(session)
   const targets = [
     session.duration_min ? ['Duration', `${number(session.duration_min)} min`] : null,
     session.distance_km ? ['Distance', `${number(session.distance_km, 1)} km`] : null,
@@ -175,6 +241,12 @@ export function SessionDialog({
                 <StepRow key={index} step={step} />
               ))}
             </ol>
+          </Section>
+        )}
+
+        {rep && (
+          <Section title="Hills that fit">
+            <HillSuggestions rep={rep} />
           </Section>
         )}
 

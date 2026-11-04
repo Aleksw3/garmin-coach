@@ -123,15 +123,31 @@ def most_likely_exercise(exercise_set: dict[str, Any]) -> dict[str, Any]:
     return max(candidates, key=lambda e: e.get("probability") or 0)
 
 
+def set_indexes(exercise_sets: list[dict[str, Any]]) -> list[int]:
+    """Garmin leaves messageIndex empty on sets added by editing an activity in Connect.
+    Those get numbers after the highest real index, so edits keyed on real indexes stay put."""
+    known = [s["messageIndex"] for s in exercise_sets if s.get("messageIndex") is not None]
+    next_free = max(known, default=-1) + 1
+    indexes = []
+    for exercise_set in exercise_sets:
+        index = exercise_set.get("messageIndex")
+        if index is None:
+            index = next_free
+            next_free += 1
+        indexes.append(index)
+    return indexes
+
+
 def sets_from_exercise_sets(activity_id: int, data: dict[str, Any]) -> list[StrengthSet]:
+    exercise_sets = data.get("exerciseSets") or []
     sets = []
-    for position, exercise_set in enumerate(data.get("exerciseSets") or []):
+    for index, exercise_set in zip(set_indexes(exercise_sets), exercise_sets, strict=True):
         exercise = most_likely_exercise(exercise_set)
         weight_grams = exercise_set.get("weight")
         sets.append(
             StrengthSet(
                 activity_id=activity_id,
-                set_index=exercise_set.get("messageIndex", position),
+                set_index=index,
                 set_type=exercise_set.get("setType", "UNKNOWN"),
                 exercise_category=exercise.get("category"),
                 exercise_name=exercise.get("name"),

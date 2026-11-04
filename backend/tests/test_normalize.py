@@ -74,6 +74,17 @@ def test_strength_sets_pick_likeliest_exercise_and_convert_grams() -> None:
     assert rest.set_type == "REST"
 
 
+def test_sets_added_in_garmin_connect_get_free_indexes() -> None:
+    data = exercise_sets()
+    data["exerciseSets"].insert(
+        1, {"exercises": [], "setType": "REST", "duration": 0.0, "messageIndex": None}
+    )
+
+    sets = sets_from_exercise_sets(7, data)
+
+    assert [s.set_index for s in sets] == [0, 3, 1, 2]
+
+
 def test_wellness_fields_from_all_daily_kinds() -> None:
     kinds = ("stats", "sleep", "hrv", "readiness", "training_status")
     wellness = wellness_from_raw(DAY, {kind: daily(kind, DAY) for kind in kinds})

@@ -21,6 +21,7 @@ from garmin_coach.coach.plan import (
     sessions_between,
 )
 from garmin_coach.evidence.library import citation, search
+from garmin_coach.garmin.workouts import find_exercises
 from garmin_coach.metrics.hills import find_hills
 from garmin_coach.metrics.load import training_load
 from garmin_coach.metrics.recovery import hrv_baseline, resting_hr_baseline
@@ -58,6 +59,7 @@ MAX_ACTIVITIES = 150
 RUNNING_GROUPS = ("run", "vertical")
 MAX_LAPS = 40
 MAX_NOTES = 50
+MAX_EXERCISES = 40
 TERRAIN_GROUPS = ("run", "vertical")
 
 
@@ -121,6 +123,12 @@ class NoteQuery(ToolInput):
 
 class NewNote(ToolInput):
     text: str = Field(min_length=1, max_length=1000)
+
+
+class ExerciseQuery(ToolInput):
+    term: str = Field(
+        min_length=2, max_length=100, description="Part of a name, for example split squat"
+    )
 
 
 class EvidenceQuery(ToolInput):
@@ -605,6 +613,19 @@ def search_evidence(ctx: ToolContext, args: EvidenceQuery) -> str:
     return "\n".join(lines)
 
 
+def find_garmin_exercises(ctx: ToolContext, args: ExerciseQuery) -> str:
+    names = find_exercises(args.term)
+    if not names:
+        return "Garmin has no exercise with all these words. Try one word or a related movement"
+    shown = names[:MAX_EXERCISES]
+    more = (
+        f"\n{len(names) - len(shown)} more, search with more words"
+        if len(names) > len(shown)
+        else ""
+    )
+    return "\n".join(shown) + more
+
+
 def minutes_seconds(seconds: float) -> str:
     whole = round(seconds)
     return f"{whole // 60}:{whole % 60:02d}"
@@ -677,6 +698,13 @@ TOOLS = (
         "strength sets with reps and weight.",
         ActivityId,
         get_activity,
+    ),
+    Tool(
+        "find_garmin_exercises",
+        "Search Garmin's strength exercise names. Planned exercises with an exact Garmin name "
+        "show up by name on the athlete's watch and count toward the right muscle groups.",
+        ExerciseQuery,
+        find_garmin_exercises,
     ),
     Tool(
         "get_goals", "The athlete's goals, including race details and status.", ToolInput, get_goals

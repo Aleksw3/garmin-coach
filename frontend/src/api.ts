@@ -322,6 +322,7 @@ export type PlannedSession = SessionSpec & {
   id: number
   plan_id: number
   skipped: boolean
+  sent_to_watch_at: string | null
   match: SessionMatch | null
 }
 
@@ -368,6 +369,9 @@ export const rejectProposal = (id: number) => request<Proposal>(`/api/proposals/
 export const setSkipped = (id: number, skipped: boolean) =>
   request<PlannedSession>(`/api/sessions/${id}`, json('PATCH', { skipped }))
 export const deleteSession = (id: number) => send(`/api/sessions/${id}`, { method: 'DELETE' })
+export const sendToWatch = (id: number) => request<PlannedSession>(`/api/sessions/${id}/watch`, { method: 'POST' })
+export const removeFromWatch = (id: number) =>
+  request<PlannedSession>(`/api/sessions/${id}/watch`, { method: 'DELETE' })
 
 export type SetValues = {
   exercise_category: string | null

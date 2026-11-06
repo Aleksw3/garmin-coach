@@ -9,6 +9,7 @@ from garmin_coach.coach.agent import Coach
 from garmin_coach.coach.notify import NO_NOTIFIER, Sender
 from garmin_coach.coach.proactive import ProactiveCoach
 from garmin_coach.garmin.connect import PendingLogin
+from garmin_coach.garmin.source import GarminSource
 from garmin_coach.jobs import SyncRunner
 from garmin_coach.sync import SyncService
 
@@ -24,6 +25,9 @@ class ProfileRuntime:
     notifier: Sender
     proactive: ProactiveCoach | None = None
     pending_login: PendingLogin | None = None
+
+    def garmin(self) -> GarminSource:
+        return self.runner.make_service().source
 
 
 def make_profile(

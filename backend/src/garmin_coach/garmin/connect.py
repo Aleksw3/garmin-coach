@@ -138,3 +138,22 @@ class GarminConnectSource:
     def body_composition(self, start: date, end: date) -> Any:
         with translated_errors():
             return self.client.get_body_composition(start.isoformat(), end.isoformat())
+
+    def upload_workout(self, workout: dict[str, Any]) -> int:
+        with translated_errors():
+            result = self.client.upload_workout(workout)
+        return int(result["workoutId"])
+
+    def schedule_workout(self, workout_id: int, day: date) -> int | None:
+        with translated_errors():
+            result = self.client.schedule_workout(workout_id, day.isoformat())
+        schedule_id = (result or {}).get("workoutScheduleId")
+        return int(schedule_id) if schedule_id else None
+
+    def unschedule_workout(self, schedule_id: int) -> None:
+        with translated_errors():
+            self.client.unschedule_workout(schedule_id)
+
+    def delete_workout(self, workout_id: int) -> None:
+        with translated_errors():
+            self.client.delete_workout(workout_id)

@@ -190,6 +190,7 @@ class FakeGarmin:
         self.calls: list[tuple[str, tuple[Any, ...]]] = []
         self.rate_limit_after: int | None = None
         self.failing: set[tuple[str, tuple[Any, ...]]] = set()
+        self.workouts: dict[int, dict[str, Any]] = {}
 
     def _record(self, name: str, *args: Any) -> None:
         if self.rate_limit_after is not None and len(self.calls) >= self.rate_limit_after:
@@ -223,6 +224,23 @@ class FakeGarmin:
                 {"calendarDate": end.isoformat(), "weight": 72500.0, "bodyFat": 12.5}
             ]
         }
+
+    def upload_workout(self, workout: dict[str, Any]) -> int:
+        self._record("upload_workout", workout["workoutName"])
+        workout_id = 100 + len(self.calls)
+        self.workouts[workout_id] = workout
+        return workout_id
+
+    def schedule_workout(self, workout_id: int, day: date) -> int | None:
+        self._record("schedule_workout", workout_id, day)
+        return workout_id + 1000
+
+    def unschedule_workout(self, schedule_id: int) -> None:
+        self._record("unschedule_workout", schedule_id)
+
+    def delete_workout(self, workout_id: int) -> None:
+        self._record("delete_workout", workout_id)
+        self.workouts.pop(workout_id, None)
 
     def count(self, name: str) -> int:
         return sum(1 for call_name, _ in self.calls if call_name == name)

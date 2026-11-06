@@ -47,6 +47,9 @@ class PlannedSession(Base):
     exercises: Mapped[list[Any]] = mapped_column(JSON, default=list, server_default="[]")
     description: Mapped[str | None] = mapped_column(Text)
     skipped: Mapped[bool] = mapped_column(Boolean, default=False)
+    garmin_workout_id: Mapped[int | None] = mapped_column(BigInteger)
+    garmin_schedule_id: Mapped[int | None] = mapped_column(BigInteger)
+    sent_to_watch_at: Mapped[datetime | None] = mapped_column(DateTime)
 
 
 class PlanProposal(Base):

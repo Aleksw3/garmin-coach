@@ -1,4 +1,7 @@
 import json
+import logging
+from collections.abc import Iterator
+from contextlib import contextmanager
 from datetime import date, datetime, timedelta
 from typing import Annotated
 
@@ -6,7 +9,7 @@ from fastapi import APIRouter, HTTPException, Query, Response
 from pydantic import BaseModel, ConfigDict
 from sqlalchemy import select
 
-from garmin_coach.api.profile import SessionDep
+from garmin_coach.api.profile import ProfileDep, SessionDep
 from garmin_coach.api.routes import activity_out
 from garmin_coach.api.schemas import ActivityOut
 from garmin_coach.coach.plan import (
@@ -19,9 +22,24 @@ from garmin_coach.coach.plan import (
     reject_proposal,
     sessions_between,
 )
+from garmin_coach.garmin.source import (
+    GarminAuthError,
+    GarminError,
+    GarminRateLimited,
+    GarminSource,
+)
+from garmin_coach.garmin.workouts import (
+    WorkoutError,
+    forget_workout,
+    remove_from_watch,
+    send_to_watch,
+)
 from garmin_coach.metrics.compliance import match_sessions
+from garmin_coach.metrics.zones import current_zones
 from garmin_coach.models import Activity, Plan, PlannedSession, PlanProposal, SessionMatch
 from garmin_coach.normalize.sports import sport_groups
+
+log = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/api")
 
@@ -40,6 +58,7 @@ class SessionOut(SessionSpec):
     id: int
     plan_id: int
     skipped: bool
+    sent_to_watch_at: datetime | None = None
     match: MatchOut | None = None
 
 
@@ -170,9 +189,46 @@ def find_proposal(session: SessionDep, proposal_id: int) -> PlanProposal:
     return proposal
 
 
+def sessions_on_watch(session: SessionDep) -> dict[int, tuple[int, int | None]]:
+    rows = session.execute(
+        select(
+            PlannedSession.id, PlannedSession.garmin_workout_id, PlannedSession.garmin_schedule_id
+        ).where(PlannedSession.garmin_workout_id.is_not(None))
+    )
+    return {row.id: (row.garmin_workout_id, row.garmin_schedule_id) for row in rows}
+
+
+def follow_plan_on_watch(
+    source: GarminSource,
+    session: SessionDep,
+    on_watch: dict[int, tuple[int, int | None]],
+    updated: set[int],
+) -> None:
+    zones = current_zones(session)
+    for session_id, (workout_id, schedule_id) in on_watch.items():
+        row = session.get(PlannedSession, session_id)
+        try:
+            if row is None:
+                forget_workout(source, workout_id, schedule_id)
+            elif session_id in updated:
+                try:
+                    send_to_watch(source, row, zones, datetime.now())
+                except WorkoutError:
+                    remove_from_watch(source, row)
+        except GarminError:
+            log.exception("Could not update planned session %s on the watch", session_id)
+        session.commit()
+
+
 @router.post("/proposals/{proposal_id}/accept", response_model=ProposalOut)
-def accept(session: SessionDep, proposal_id: int) -> ProposalOut:
+def accept(session: SessionDep, profile: ProfileDep, proposal_id: int) -> ProposalOut:
     proposal = find_proposal(session, proposal_id)
+    on_watch = sessions_on_watch(session)
+    updated = {
+        c.session_id
+        for c in proposal_body(proposal).changes
+        if c.op == "update" and c.session_id is not None
+    }
     try:
         first, last = accept_proposal(session, proposal, datetime.now())
     except PlanError as error:
@@ -180,6 +236,8 @@ def accept(session: SessionDep, proposal_id: int) -> ProposalOut:
         raise HTTPException(409, str(error)) from error
     match_sessions(session, first, last)
     session.commit()
+    if on_watch:
+        follow_plan_on_watch(profile.garmin(), session, on_watch, updated)
     return proposal_out(session, proposal)
 
 
@@ -210,9 +268,49 @@ def patch_session(session: SessionDep, session_id: int, body: SessionPatch) -> S
     return session_out(session, row)
 
 
-@router.delete("/sessions/{session_id}", status_code=204)
-def delete_session(session: SessionDep, session_id: int) -> Response:
+@contextmanager
+def garmin_errors() -> Iterator[None]:
+    try:
+        yield
+    except WorkoutError as error:
+        raise HTTPException(422, str(error)) from error
+    except GarminAuthError as error:
+        raise HTTPException(
+            409, "Garmin login failed. Log in again on the Settings page."
+        ) from error
+    except GarminRateLimited as error:
+        raise HTTPException(429, "Garmin is limiting requests. Try again in a while.") from error
+    except GarminError as error:
+        raise HTTPException(502, f"Garmin did not accept the workout: {error}") from error
+
+
+@router.post("/sessions/{session_id}/watch", response_model=SessionOut)
+def send_session_to_watch(session: SessionDep, profile: ProfileDep, session_id: int) -> SessionOut:
     row = find_session(session, session_id)
+    with garmin_errors():
+        send_to_watch(profile.garmin(), row, current_zones(session), datetime.now())
+    session.commit()
+    return session_out(session, row)
+
+
+@router.delete("/sessions/{session_id}/watch", response_model=SessionOut)
+def remove_session_from_watch(
+    session: SessionDep, profile: ProfileDep, session_id: int
+) -> SessionOut:
+    row = find_session(session, session_id)
+    if row.garmin_workout_id is not None:
+        with garmin_errors():
+            remove_from_watch(profile.garmin(), row)
+        session.commit()
+    return session_out(session, row)
+
+
+@router.delete("/sessions/{session_id}", status_code=204)
+def delete_session(session: SessionDep, profile: ProfileDep, session_id: int) -> Response:
+    row = find_session(session, session_id)
+    if row.garmin_workout_id is not None:
+        with garmin_errors():
+            remove_from_watch(profile.garmin(), row)
     day = row.day
     session.delete(row)
     session.flush()

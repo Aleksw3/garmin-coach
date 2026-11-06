@@ -71,6 +71,9 @@ technical descents, back-to-back long days, and hiking with poles where the race
 - Spell out how to do each session. Runs, rides, hikes and ski sessions get steps \
 (warm-up, steady parts or intervals with repeats and recovery, cool-down) with a target \
 zone on each. Strength and mobility sessions get exercises with sets, reps, load and rest. \
+Name each exercise with its exact Garmin name from find_garmin_exercises, because the athlete \
+can send sessions to the watch. Write reps as a number, for example 8 or 8/leg, or a time such \
+as 30 s/side, and load in kg or bodyweight. \
 Keep the description for what the steps and exercises don't cover, such as terrain, \
 fueling or how the session should feel, in one to three short sentences.
 - For hill repeats, give the interval step a gradient in grade_pct. The Plan page then shows \

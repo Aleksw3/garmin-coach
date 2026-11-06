@@ -4,6 +4,8 @@ import {
   deleteSession,
   fetchHills,
   fetchZones,
+  removeFromWatch,
+  sendToWatch,
   setSkipped,
   type Exercise,
   type PlannedSession,
@@ -15,6 +17,41 @@ import { sessionStatus } from '../sessions'
 import { groupColor, groupLabel, useTheme } from '../theme'
 
 const DEFAULT_HILL_GRADE = 8
+const WATCH_SPORTS: PlannedSession['sport'][] = ['run', 'vertical', 'cycling']
+
+function fitsOnWatch(session: PlannedSession): boolean {
+  return session.exercises.length > 0 || WATCH_SPORTS.includes(session.sport)
+}
+
+function WatchStatus({ session }: { session: PlannedSession }) {
+  const queryClient = useQueryClient()
+  const refresh = () => queryClient.invalidateQueries({ queryKey: ['calendar'] })
+  const upload = useMutation({ mutationFn: () => sendToWatch(session.id), onSuccess: refresh })
+  const remove = useMutation({ mutationFn: () => removeFromWatch(session.id), onSuccess: refresh })
+  const busy = upload.isPending || remove.isPending
+  const error = upload.error ?? remove.error
+  const sent = session.sent_to_watch_at
+  return (
+    <div className="flex flex-wrap items-center gap-x-4 gap-y-1 rounded-lg bg-raised px-3 py-2 text-sm">
+      <span className="text-secondary">
+        {busy
+          ? 'Talking to Garmin…'
+          : sent
+            ? `On the watch calendar, sent ${shortDate(sent)}`
+            : 'Not on the watch yet'}
+      </span>
+      <button type="button" disabled={busy} onClick={() => upload.mutate()} className="font-semibold text-accent">
+        {sent ? 'Send again' : 'Send to watch'}
+      </button>
+      {sent && (
+        <button type="button" disabled={busy} onClick={() => remove.mutate()} className="text-muted hover:text-critical">
+          Remove from watch
+        </button>
+      )}
+      {error && <p className="w-full text-xs text-critical">{error.message}</p>}
+    </div>
+  )
+}
 
 const STEP_LABELS: Record<Step['kind'], string> = {
   warmup: 'Warm-up',
@@ -265,6 +302,8 @@ export function SessionDialog({
             <Notes text={session.description} />
           </Section>
         )}
+
+        {fitsOnWatch(session) && !session.match && <WatchStatus session={session} />}
 
         <footer className="flex flex-wrap items-center gap-4 border-t border-line pt-4 text-sm">
           {session.match && (

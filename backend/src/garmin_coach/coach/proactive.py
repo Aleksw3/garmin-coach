@@ -5,7 +5,7 @@ from datetime import datetime, timedelta
 from sqlalchemy import select
 from sqlalchemy.orm import Session, sessionmaker
 
-from garmin_coach.coach.agent import Coach
+from garmin_coach.coach.agent import Coach, CoachError
 from garmin_coach.coach.notify import Sender
 from garmin_coach.models import Activity, ActivityFeedback, Conversation
 from garmin_coach.reports import week_start
@@ -57,14 +57,26 @@ class ProactiveCoach:
                     Conversation.kind == "coach", Conversation.title == title
                 )
             ).first()
-            if conversation is None:
-                now = self.now()
-                conversation = Conversation(
-                    kind="coach", title=title, created_at=now, updated_at=now
-                )
-                session.add(conversation)
-                session.commit()
-            return conversation.id
+            if conversation is not None:
+                return conversation.id
+            last_week = session.scalars(
+                select(Conversation)
+                .where(Conversation.kind == "coach")
+                .order_by(Conversation.created_at.desc(), Conversation.id.desc())
+                .limit(1)
+            ).first()
+            now = self.now()
+            conversation = Conversation(kind="coach", title=title, created_at=now, updated_at=now)
+            session.add(conversation)
+            session.commit()
+            thread_id = conversation.id
+            last_week_id = last_week.id if last_week else None
+        if last_week_id is not None:
+            try:
+                self.coach.compact(last_week_id, into=thread_id, wait=True)
+            except CoachError as error:
+                log.warning("Could not carry last week's summary over: %s", error)
+        return thread_id
 
     def _run(self, purpose: str, label: str, prompt: str, title: str) -> str | None:
         if not self.coach.ready:

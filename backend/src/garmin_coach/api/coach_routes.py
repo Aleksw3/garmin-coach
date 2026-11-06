@@ -9,6 +9,7 @@ from pydantic import BaseModel, ConfigDict, Field
 from sqlalchemy import func, select
 
 from garmin_coach.api.profile import ProfileDep, ProfileRuntime, SessionDep
+from garmin_coach.coach.agent import CoachError
 from garmin_coach.coach.usage import month_spend, month_start
 from garmin_coach.models import ApiUsage, AthleteProfile, CoachNote, Conversation, Goal, Message
 from garmin_coach.profiles import athlete
@@ -37,7 +38,7 @@ class ToolCallOut(BaseModel):
 
 
 class ChatItemOut(BaseModel):
-    role: Literal["user", "coach", "event"]
+    role: Literal["user", "coach", "event", "summary"]
     text: str
     tools: list[ToolCallOut]
     created_at: datetime
@@ -132,6 +133,12 @@ class UsageOut(BaseModel):
     recent: list[UsageRowOut]
 
 
+USER_ITEM_ROLES: dict[str, Literal["user", "event", "summary"]] = {
+    "schedule": "event",
+    "summary": "summary",
+}
+
+
 def chat_items(messages: list[Message]) -> list[ChatItemOut]:
     contents = [(message, json.loads(message.content)) for message in messages]
     tool_ok = {
@@ -147,7 +154,7 @@ def chat_items(messages: list[Message]) -> list[ChatItemOut]:
             if message.display_text is not None:
                 items.append(
                     ChatItemOut(
-                        role="event" if message.source == "schedule" else "user",
+                        role=USER_ITEM_ROLES.get(message.source, "user"),
                         text=message.display_text,
                         tools=[],
                         created_at=message.created_at,
@@ -204,9 +211,18 @@ def get_conversation(session: SessionDep, conversation_id: int) -> ConversationD
     cost = session.scalar(
         select(func.sum(ApiUsage.cost_usd)).where(ApiUsage.conversation_id == conversation_id)
     )
+    latest_summary = session.scalar(
+        select(func.max(ApiUsage.id)).where(
+            ApiUsage.conversation_id == conversation_id, ApiUsage.purpose == "summary"
+        )
+    )
     latest_call = session.scalars(
         select(ApiUsage)
-        .where(ApiUsage.conversation_id == conversation_id)
+        .where(
+            ApiUsage.conversation_id == conversation_id,
+            ApiUsage.purpose != "summary",
+            ApiUsage.id > (latest_summary or 0),
+        )
         .order_by(ApiUsage.id.desc())
         .limit(1)
     ).first()
@@ -225,6 +241,19 @@ def get_conversation(session: SessionDep, conversation_id: int) -> ConversationD
             else 0
         ),
     )
+
+
+@router.post("/conversations/{conversation_id}/compact", response_model=ConversationDetailOut)
+def compact_conversation(
+    session: SessionDep, profile: ProfileDep, conversation_id: int
+) -> ConversationDetailOut:
+    find_conversation(session, conversation_id)
+    try:
+        profile.coach.compact(conversation_id)
+    except CoachError as error:
+        raise HTTPException(409, str(error)) from error
+    session.expire_all()
+    return get_conversation(session, conversation_id)
 
 
 @router.delete("/conversations/{conversation_id}", status_code=204)

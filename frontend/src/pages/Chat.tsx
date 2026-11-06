@@ -1,6 +1,7 @@
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { useEffect, useRef, useState, type FormEvent, type KeyboardEvent } from 'react'
 import {
+  compactConversation,
   createConversation,
   deleteConversation,
   fetchConversation,
@@ -22,17 +23,31 @@ type Cost = { turn: number; month: number; budget: number }
 
 const LONG_THREAD_TOKENS = 30_000
 
-function ThreadSize({ detail, onNew }: { detail: ConversationDetail; onNew: () => void }) {
+function ThreadSize({
+  detail,
+  onNew,
+  onCompact,
+}: {
+  detail: ConversationDetail
+  onNew: () => void
+  onCompact: () => void
+}) {
   if (detail.context_tokens === 0) return null
+  const compactButton = (
+    <button type="button" onClick={onCompact} className="text-accent underline">
+      compact it
+    </button>
+  )
   return (
     <div className="tabular text-xs">
       <p className="text-muted">
         This conversation is {number(detail.context_tokens / 1000, 1)}K tokens and has cost $
-        {detail.cost_usd.toFixed(2)} so far. Every message sends all of it again.
+        {detail.cost_usd.toFixed(2)} so far. Every message sends all of it again. To send a short summary
+        instead, {compactButton}.
       </p>
       {detail.context_tokens >= LONG_THREAD_TOKENS && (
         <p className="mt-1 text-warning">
-          ▲ A long conversation costs more per message. For a new topic,{' '}
+          ▲ A long conversation costs more per message. Keep going and {compactButton}, or for a new topic{' '}
           <button type="button" onClick={onNew} className="text-accent underline">
             start a new conversation
           </button>
@@ -99,6 +114,8 @@ function Thread({
   })
   const [pending, setPending] = useState<Pending | null>(null)
   const [cost, setCost] = useState<Cost | null>(null)
+  const [compacting, setCompacting] = useState(false)
+  const [compactError, setCompactError] = useState<string | null>(null)
   const bottom = useRef<HTMLDivElement>(null)
 
   useEffect(() => {
@@ -132,10 +149,28 @@ function Thread({
     setPending((current) => (current?.error ? current : null))
   }
 
+  const compact = async () => {
+    if (id === null) return
+    setCompacting(true)
+    setCompactError(null)
+    setCost(null)
+    try {
+      queryClient.setQueryData(['conversation', id], await compactConversation(id))
+      await queryClient.invalidateQueries({ queryKey: ['usage'] })
+    } catch (error) {
+      setCompactError(String(error))
+    } finally {
+      setCompacting(false)
+    }
+  }
+
   const items = conversation.data?.items ?? []
-  const busy = pending !== null && pending.error === null
+  const busy = compacting || (pending !== null && pending.error === null)
   return (
     <div className="flex min-h-[calc(100dvh-7rem)] min-w-0 flex-col">
+      {conversation.data?.title && (
+        <h2 className="mb-4 text-sm font-semibold break-words text-primary">{conversation.data.title}</h2>
+      )}
       <div className="flex-1 space-y-4" aria-live="polite">
         {items.length === 0 && !pending && (
           <div className="space-y-2 pt-4">
@@ -173,7 +208,11 @@ function Thread({
             {cost.budget.toFixed(2)}.
           </p>
         )}
-        {conversation.data && !busy && <ThreadSize detail={conversation.data} onNew={onNew} />}
+        {compacting && <p className="text-sm text-muted">Summarizing the conversation…</p>}
+        {compactError && <p className="text-sm text-critical">{compactError}</p>}
+        {conversation.data && !busy && (
+          <ThreadSize detail={conversation.data} onNew={onNew} onCompact={() => void compact()} />
+        )}
         <div ref={bottom} />
       </div>
       <Composer disabled={busy} onSend={(text) => void send(text)} />
@@ -235,6 +274,7 @@ export function ChatPage() {
               <button
                 type="button"
                 onClick={() => open(c.id)}
+                title={c.title ?? 'Untitled'}
                 aria-current={c.id === active ? 'true' : undefined}
                 className={`w-full truncate rounded-lg px-3 py-1.5 text-left text-sm ${
                   c.id === active ? 'bg-raised text-primary' : 'text-secondary hover:bg-raised'

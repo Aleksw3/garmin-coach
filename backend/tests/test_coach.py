@@ -13,7 +13,7 @@ from sqlalchemy.orm import Session, sessionmaker
 
 from garmin_coach import raw_store
 from garmin_coach.api.coach_routes import chat_items
-from garmin_coach.coach.agent import Coach, coach_settings
+from garmin_coach.coach.agent import SUMMARY_PROMPT, Coach, CoachError, coach_settings, title_from
 from garmin_coach.coach.notify import Notifier
 from garmin_coach.coach.proactive import ProactiveCoach
 from garmin_coach.coach.tools import ToolContext, run_tool, tool_definitions
@@ -182,6 +182,48 @@ def test_next_turn_replays_history_unchanged(seeded: sessionmaker[Session]) -> N
     assert second["tools"] == first["tools"]
 
 
+def test_compacting_starts_the_history_at_a_summary(seeded: sessionmaker[Session]) -> None:
+    claude = FakeClaude(
+        [text_reply("Hi."), text_reply("- Left knee is sore"), text_reply("Rest the knee.")]
+    )
+    coach = make_coach(seeded, claude)
+    list(coach.reply(1, "My left knee hurts"))
+    assert coach.compact(1) == "- Left knee is sore"
+    list(coach.reply(1, "What now?"))
+
+    _, summary_request, next_request = claude.requests
+    assert summary_request["tool_choice"] == {"type": "none"}
+    assert summary_request["model"] == "claude-haiku-5-5"
+    assert summary_request["messages"][-1]["content"][-1]["text"] == SUMMARY_PROMPT
+    assert "tool_choice" not in next_request
+    [turn] = next_request["messages"]
+    assert turn["role"] == "user"
+    assert turn["content"][0]["text"].endswith("- Left knee is sore")
+    assert turn["content"][-1]["text"] == "What now?"
+
+    with seeded() as session:
+        items = chat_items(
+            list(session.scalars(select(Message).where(Message.conversation_id == 1)))
+        )
+    assert [i.role for i in items] == ["user", "coach", "summary", "user", "coach"]
+    with pytest.raises(CoachError, match="no messages"):
+        coach.compact(2)
+
+
+def test_compacting_twice_needs_new_messages(seeded: sessionmaker[Session]) -> None:
+    coach = make_coach(seeded, FakeClaude([text_reply("Hi."), text_reply("- Summary")]))
+    list(coach.reply(1, "Hello"))
+    coach.compact(1)
+    with pytest.raises(CoachError, match="Nothing new"):
+        coach.compact(1)
+
+
+def test_titles_keep_the_whole_first_line() -> None:
+    question = "How should I split my hill sessions and long runs over the next eight weeks?"
+    assert title_from(f"{question}\nMore detail") == question
+    assert title_from("x" * 300) == "x" * 197 + "..."
+
+
 def test_invalid_tool_input_returns_an_error_result(seeded: sessionmaker[Session]) -> None:
     claude = FakeClaude(
         [tool_reply("get_load", {"start": "2026-10-28", "end": "2026-10-01"}), text_reply("Oops.")]
@@ -295,6 +337,13 @@ def test_chat_api_streams_events(seeded: sessionmaker[Session]) -> None:
     assert detail["cost_usd"] == pytest.approx(events[-1]["turn_cost_usd"])
     assert detail["context_tokens"] == 2100
     assert client.get("/api/usage").json()["calls_this_month"] == 1
+
+    claude.replies.append(text_reply("- Said hi"))
+    compacted = client.post(f"/api/conversations/{created['id']}/compact").json()
+    summary = compacted["items"][-1]
+    assert (summary["role"], summary["text"]) == ("summary", "- Said hi")
+    assert compacted["context_tokens"] == 0
+    assert client.post(f"/api/conversations/{created['id']}/compact").status_code == 409
 
     goal = {"kind": "race", "title": "Test race", "target_date": "2027-06-01", "distance_km": 42}
     goal_id = client.post("/api/goals", json=goal).json()["id"]
@@ -466,3 +515,42 @@ def test_proactive_messages_go_to_the_weekly_coach_thread(
     latest = client.get("/api/coach/latest").json()
     assert latest["text"] == "Good steady run."
     assert latest["label"] == "Feedback on Activity 1"
+
+
+def test_a_new_week_starts_with_a_summary_of_last_week(
+    seeded: sessionmaker[Session], sent: list[Any]
+) -> None:
+    claude = FakeClaude(
+        [
+            text_reply("Easy day."),
+            text_reply("- Easy week, knee fine"),
+            text_reply("Ready for hills."),
+        ]
+    )
+    today = [NOW]
+    coach = Coach(seeded, claude, SETTINGS, now=lambda: today[0])
+    proactive = ProactiveCoach(
+        seeded, coach, Notifier("https://ntfy.sh", None), now=lambda: today[0]
+    )
+    proactive.morning_checkin()
+    today[0] = NOW + timedelta(days=7)
+    proactive.morning_checkin()
+
+    summary_request, checkin_request = claude.requests[1:]
+    assert summary_request["messages"][-1]["content"][-1]["text"] == SUMMARY_PROMPT
+    [turn] = checkin_request["messages"]
+    assert turn["content"][0]["text"].endswith("- Easy week, knee fine")
+    assert "Wednesday 04 November" in turn["content"][-1]["text"]
+
+    with seeded() as session:
+        threads = session.scalars(
+            select(Conversation).where(Conversation.kind == "coach").order_by(Conversation.id)
+        ).all()
+        assert [t.title for t in threads] == [
+            "Coach, week from 26 Oct 2026",
+            "Coach, week from 02 Nov 2026",
+        ]
+        items = chat_items(
+            list(session.scalars(select(Message).where(Message.conversation_id == threads[1].id)))
+        )
+    assert [i.role for i in items] == ["summary", "event", "coach"]

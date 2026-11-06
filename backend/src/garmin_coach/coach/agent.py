@@ -23,11 +23,19 @@ log = logging.getLogger(__name__)
 THINKING_BINDING_BETA = "thinking-binding-controls-2026-08-01"
 MAX_ROUNDS = 10
 MAX_PARSE_RETRIES = 2
-TITLE_LENGTH = 60
+TITLE_LENGTH = 200
 LOCK_WAIT_S = 900
 
 SYSTEM = [{"type": "text", "text": SYSTEM_PROMPT, "cache_control": {"type": "ephemeral"}}]
 TOOL_DEFINITIONS = tool_definitions()
+
+SUMMARY_PROMPT = """\
+Summarize this conversation so a new one can continue from the summary alone. Keep what I \
+told you about how I feel, sleep and recover, injuries and niggles, decisions we made, plan \
+changes you proposed and whether I accepted them, and questions that are still open. Leave \
+out numbers you can look up again with the tools. Write at most 250 words as short bullet \
+points under a few plain headings. Do not call any tools."""
+SUMMARY_INTRO = "Summary of the earlier conversation:\n\n"
 
 Event = dict[str, Any]
 StreamFactory = Callable[..., AbstractContextManager[Any]]
@@ -63,6 +71,7 @@ def coach_settings(settings: Settings) -> CoachSettings:
             "review": ModelChoice(settings.chat_model, "medium"),
             "checkin": background,
             "feedback": background,
+            "summary": background,
         },
         monthly_budget_usd=settings.monthly_budget_usd,
         trimp_coefficient=settings.trimp_coefficient,
@@ -78,6 +87,40 @@ def title_from(text: str) -> str:
 
 def error(message: str) -> Event:
     return {"type": "error", "message": message}
+
+
+class CoachError(Exception):
+    pass
+
+
+def append_turn(history: list[dict[str, Any]], role: str, content: list[dict[str, Any]]) -> None:
+    if history and history[-1]["role"] == role:
+        history[-1]["content"] = [*history[-1]["content"], *content]
+    else:
+        history.append({"role": role, "content": content})
+
+
+def since_summary(session: Session, conversation_id: int) -> list[Message]:
+    messages = session.scalars(
+        select(Message).where(Message.conversation_id == conversation_id).order_by(Message.id)
+    ).all()
+    summaries = [index for index, message in enumerate(messages) if message.source == "summary"]
+    return list(messages[summaries[-1] :] if summaries else messages)
+
+
+def model_history(messages: list[Message]) -> list[dict[str, Any]]:
+    history: list[dict[str, Any]] = []
+    for message in messages:
+        append_turn(history, message.role, json.loads(message.content))
+    return history
+
+
+def final_value(generator: Generator[Event, None, Any]) -> Any:
+    while True:
+        try:
+            next(generator)
+        except StopIteration as stop:
+            return stop.value
 
 
 class Coach:
@@ -148,6 +191,16 @@ class Coach:
         if conversation is not None:
             conversation.updated_at = now
 
+    def _budget_used_up(self) -> str | None:
+        spent = self.spending(self.now().date())
+        budget = self.settings.monthly_budget_usd
+        if spent < budget:
+            return None
+        return (
+            f"This month's API budget of ${budget:.2f} is used up (${spent:.2f} spent). "
+            "Chat opens again on the 1st, or raise MONTHLY_BUDGET_USD in .env."
+        )
+
     def _start_turn(
         self, conversation_id: int, text: str, label: str | None
     ) -> list[dict[str, Any]] | str:
@@ -156,21 +209,9 @@ class Coach:
             conversation = session.get(Conversation, conversation_id)
             if conversation is None:
                 return f"No conversation with id {conversation_id}"
-            spent = self.spending(now.date())
-            budget = self.settings.monthly_budget_usd
-            if spent >= budget:
-                return (
-                    f"This month's API budget of ${budget:.2f} is used up (${spent:.2f} spent). "
-                    "Chat opens again on the 1st, or raise MONTHLY_BUDGET_USD in .env."
-                )
-            history = [
-                {"role": message.role, "content": json.loads(message.content)}
-                for message in session.scalars(
-                    select(Message)
-                    .where(Message.conversation_id == conversation_id)
-                    .order_by(Message.id)
-                )
-            ]
+            if used_up := self._budget_used_up():
+                return used_up
+            history = model_history(since_summary(session, conversation_id))
             content = [
                 {"type": "text", "text": context_block(session, now)},
                 {"type": "text", "text": text},
@@ -182,12 +223,69 @@ class Coach:
             if conversation.title is None:
                 conversation.title = title_from(text)
             session.commit()
-        return [*history, {"role": "user", "content": content}]
+        append_turn(history, "user", content)
+        return history
+
+    def compact(self, conversation_id: int, into: int | None = None, wait: bool = False) -> str:
+        if self.stream_factory is None:
+            raise CoachError("No Anthropic API key yet. Add one on the Settings page.")
+        if not self._lock.acquire(timeout=LOCK_WAIT_S if wait else 0):
+            raise CoachError("The coach is already answering. Wait for that reply to finish.")
+        target = into or conversation_id
+        try:
+            summary = self._summarize(conversation_id, target)
+            with self.sessions() as session:
+                self._save(
+                    session,
+                    target,
+                    "user",
+                    [{"type": "text", "text": SUMMARY_INTRO + summary}],
+                    display_text=summary,
+                    source="summary",
+                )
+                session.commit()
+            return summary
+        finally:
+            self._lock.release()
+
+    def _summarize(self, conversation_id: int, target: int) -> str:
+        with self.sessions() as session:
+            messages = since_summary(session, conversation_id)
+        if not messages:
+            raise CoachError("This conversation has no messages yet.")
+        if len(messages) == 1 and messages[0].source == "summary":
+            if target != conversation_id and messages[0].display_text:
+                return messages[0].display_text
+            raise CoachError("Nothing new to compact since the last summary.")
+        if used_up := self._budget_used_up():
+            raise CoachError(used_up)
+
+        history = model_history(messages)
+        append_turn(history, "user", [{"type": "text", "text": SUMMARY_PROMPT}])
+        choice = self.settings.choice("summary")
+        try:
+            message = final_value(self._call_model(history, choice, {"type": "none"}))
+        except anthropic.APIError as api_error:
+            log.exception("Claude API call for a summary failed")
+            raise CoachError(f"The Claude API call failed: {api_error}") from api_error
+        if message is None or message.stop_reason == "refusal":
+            raise CoachError("The coach could not summarize this conversation. Try again.")
+        with self.sessions() as session:
+            record_usage(session, choice.model, "summary", target, message.usage)
+            session.commit()
+        summary = "\n\n".join(block.text for block in message.content if block.type == "text")
+        if not summary.strip():
+            raise CoachError("The coach returned an empty summary. Try again.")
+        return summary.strip()
 
     def _stream(
-        self, history: list[dict[str, Any]], choice: ModelChoice
+        self,
+        history: list[dict[str, Any]],
+        choice: ModelChoice,
+        tool_choice: dict[str, str] | None = None,
     ) -> Generator[Event, None, Any]:
         assert self.stream_factory is not None
+        extra = {} if tool_choice is None else {"tool_choice": tool_choice}
         with self.stream_factory(
             model=choice.model,
             max_tokens=choice.max_tokens,
@@ -201,6 +299,7 @@ class Coach:
             output_config={"effort": choice.effort},
             cache_control={"type": "ephemeral"},
             betas=[THINKING_BINDING_BETA],
+            **extra,
         ) as stream:
             for event in stream:
                 if event.type == "text":
@@ -208,11 +307,14 @@ class Coach:
             return stream.get_final_message()
 
     def _call_model(
-        self, history: list[dict[str, Any]], choice: ModelChoice
+        self,
+        history: list[dict[str, Any]],
+        choice: ModelChoice,
+        tool_choice: dict[str, str] | None = None,
     ) -> Generator[Event, None, Any]:
         for attempt in range(MAX_PARSE_RETRIES + 1):
             try:
-                return (yield from self._stream(history, choice))
+                return (yield from self._stream(history, choice, tool_choice))
             except ValueError:
                 log.warning("Unparseable tool input, attempt %d", attempt + 1)
         return None
@@ -279,7 +381,7 @@ class Coach:
                     results.append(result if ok else {**result, "is_error": True})
                 self._save(session, conversation_id, "user", results)
                 session.commit()
-            history.append({"role": "user", "content": results})
+            append_turn(history, "user", results)
         else:
             yield error(f"The coach stopped after {MAX_ROUNDS} rounds of tool calls.")
 

@@ -158,7 +158,7 @@ export type Conversation = { id: number; kind: 'chat' | 'coach'; title: string |
 
 export type ToolCall = { id: string; name: string; input: Record<string, unknown>; ok: boolean | null }
 
-export type ChatItem = { role: 'user' | 'coach' | 'event'; text: string; tools: ToolCall[]; created_at: string }
+export type ChatItem = { role: 'user' | 'coach' | 'event' | 'summary'; text: string; tools: ToolCall[]; created_at: string }
 
 export type ConversationDetail = Conversation & { items: ChatItem[]; cost_usd: number; context_tokens: number }
 
@@ -243,6 +243,8 @@ async function send(path: string, init: RequestInit): Promise<void> {
 export const fetchConversations = () => request<Conversation[]>('/api/conversations')
 export const createConversation = () => request<Conversation>('/api/conversations', { method: 'POST' })
 export const fetchConversation = (id: number) => request<ConversationDetail>(`/api/conversations/${id}`)
+export const compactConversation = (id: number) =>
+  request<ConversationDetail>(`/api/conversations/${id}/compact`, { method: 'POST' })
 export const deleteConversation = (id: number) => send(`/api/conversations/${id}`, { method: 'DELETE' })
 export const fetchProfile = () => request<Profile>('/api/profile')
 export const saveProfile = (profile: Profile) => request<Profile>('/api/profile', json('PUT', profile))

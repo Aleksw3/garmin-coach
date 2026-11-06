@@ -374,7 +374,7 @@ export function zoneWeeksOption(theme: Theme, weeks: ZoneWeek[], zones: HrZone[]
 }
 
 export const COST_GROUPS = [
-  { key: 'chat', label: 'Chat', purposes: ['chat'], slot: 1 },
+  { key: 'chat', label: 'Chat', purposes: ['chat', 'summary'], slot: 1 },
   { key: 'plan', label: 'Plans', purposes: ['plan', 'structure'], slot: 2 },
   { key: 'proactive', label: 'Check-ins and reviews', purposes: ['checkin', 'feedback', 'review'], slot: 3 },
   { key: 'research', label: 'Research', purposes: ['evidence'], slot: 4 },

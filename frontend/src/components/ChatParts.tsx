@@ -65,6 +65,18 @@ export function Bubble({ item }: { item: Pick<ChatItem, 'role' | 'text' | 'tools
       </p>
     )
   }
+  if (item.role === 'summary') {
+    return (
+      <details className="rounded-xl border border-line px-3 py-2">
+        <summary className="cursor-pointer text-xs text-muted">
+          Summary of the earlier messages. The coach reads from here on.
+        </summary>
+        <div className="mt-2">
+          <CoachText text={item.text} />
+        </div>
+      </details>
+    )
+  }
   if (item.role === 'user') {
     return (
       <div className="flex justify-end">

@@ -225,7 +225,8 @@ function EntryCard({ entry, library }: { entry: EvidenceEntry; library: Evidence
     onSuccess: refresh,
   })
   const disputedBy = library.find((other) => other.id === entry.disputed_by_id)
-  const button = 'rounded-lg border border-line px-3 py-1.5 text-sm text-secondary hover:bg-raised'
+  const button = 'rounded-lg border border-line px-3 py-1.5 text-sm text-secondary hover:bg-raised disabled:opacity-50'
+  const saving = status.isPending
   return (
     <section className="min-w-0 rounded-xl border border-line bg-surface p-4">
       <a href={paperUrl(entry)} target="_blank" rel="noreferrer" className="text-sm font-semibold text-primary hover:underline">
@@ -273,7 +274,8 @@ function EntryCard({ entry, library }: { entry: EvidenceEntry; library: Evidence
             <button
               type="button"
               onClick={() => status.mutate('approved')}
-              className="rounded-lg bg-accent px-3 py-1.5 text-sm font-semibold text-white"
+              disabled={saving}
+              className="rounded-lg bg-accent px-3 py-1.5 text-sm font-semibold text-white disabled:opacity-50"
             >
               Approve
             </button>
@@ -285,6 +287,7 @@ function EntryCard({ entry, library }: { entry: EvidenceEntry; library: Evidence
             <button
               type="button"
               onClick={() => status.mutate('skipped')}
+              disabled={saving}
               title="Read it, not useful for you. The coach will not cite it and it will not be fetched again."
               className={button}
             >
@@ -292,7 +295,7 @@ function EntryCard({ entry, library }: { entry: EvidenceEntry; library: Evidence
             </button>
           )}
           {(entry.status === 'approved' || entry.status === 'skipped') && (
-            <button type="button" onClick={() => status.mutate('pending')} className={button}>
+            <button type="button" onClick={() => status.mutate('pending')} disabled={saving} className={button}>
               Back to review
             </button>
           )}
@@ -300,6 +303,7 @@ function EntryCard({ entry, library }: { entry: EvidenceEntry; library: Evidence
             <button
               type="button"
               onClick={() => status.mutate('rejected')}
+              disabled={saving}
               title="The study is weak or wrong. The coach will not cite it."
               className={button}
             >
@@ -325,6 +329,8 @@ function EntryCard({ entry, library }: { entry: EvidenceEntry; library: Evidence
               </select>
             </label>
           )}
+          {saving && <span className="text-xs text-muted">Saving…</span>}
+          {status.error && <span className="text-xs text-critical">{status.error.message}</span>}
         </div>
       )}
     </section>

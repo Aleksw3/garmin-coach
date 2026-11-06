@@ -31,11 +31,20 @@ DESIGN_FROM_PUBLICATION_TYPE = (
 )
 
 SYSTEM = """\
-You summarize sports science papers for an evidence library that an endurance and strength \
-coach uses. Base every field on the title and abstract only, and say "not reported" when the \
-abstract does not say. Write short, plain sentences with the numbers the abstract gives. The \
-takeaway says what an amateur trail runner who also lifts and skis should do differently, or \
-that the paper changes nothing for them."""
+You summarize sports science papers for an evidence library that amateur athletes read to \
+plan their own training. They train for endurance sports and also lift. Base every field on \
+the title and abstract only. Write short, plain sentences with the numbers the abstract gives. \
+When the abstract does not give the population, intervention or outcome, write "not reported" \
+in that field.
+
+The takeaway tells the reader what to learn from the paper and what to do with it in their \
+training, in two or three sentences. First give the lesson: what works, what does not, or what \
+a measure can and cannot tell you, with the size of the effect and the dose behind it, such as \
+sessions per week, intensity, duration and weeks, if the abstract gives them. Then give the \
+advice as one or two instructions that start with a verb. If the paper gives no reason to \
+change how anyone trains, say that in one short sentence. Never describe the reader or name \
+their sports. Do not repeat the claim. Do not mention doses, effect sizes or anything else the \
+abstract leaves out, because the limitations field covers that."""
 
 TEXT = {"type": "string"}
 SCHEMA: dict[str, Any] = {
@@ -48,8 +57,11 @@ SCHEMA: dict[str, Any] = {
         "design": {"type": "string", "enum": list(DESIGNS)},
         "sample_size": {"type": ["integer", "null"]},
         "effect": {"type": "string", "enum": list(EFFECTS)},
-        "takeaway": TEXT,
         "limitations": TEXT,
+        "takeaway": {
+            "type": "string",
+            "description": "The lesson from the paper, then what to do in training.",
+        },
     },
     "required": [
         "claim",
@@ -59,8 +71,8 @@ SCHEMA: dict[str, Any] = {
         "design",
         "sample_size",
         "effect",
-        "takeaway",
         "limitations",
+        "takeaway",
     ],
     "additionalProperties": False,
 }

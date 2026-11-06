@@ -10,6 +10,7 @@ import {
   setDisputedBy,
   setEvidenceStatus,
   startEvidenceFetch,
+  startTakeawayRewrite,
   updateEvidenceTopic,
   type EvidenceEntry,
   type EvidenceFields,
@@ -55,7 +56,9 @@ function FetchBar() {
     refetchInterval: (query) => (query.state.data?.running ? 3000 : false),
   })
   const start = useMutation({ mutationFn: startEvidenceFetch, onSuccess: () => void status.refetch() })
+  const rewrite = useMutation({ mutationFn: startTakeawayRewrite, onSuccess: () => void status.refetch() })
   const running = status.data?.running ?? false
+  const rewriting = running && status.data?.task === 'rewrite'
   const last = status.data?.last
   const wasRunning = useRef(running)
   useEffect(() => {
@@ -70,7 +73,17 @@ function FetchBar() {
         disabled={running || status.data?.available === false}
         className="rounded-lg border border-line px-3 py-1.5 text-sm text-primary hover:bg-raised disabled:opacity-50"
       >
-        {running ? 'Fetching papers…' : 'Fetch now'}
+        {running && !rewriting ? 'Fetching papers…' : 'Fetch now'}
+      </button>
+      <button
+        type="button"
+        onClick={() => {
+          if (confirm('Write new takeaways for every paper? This replaces takeaways you have edited.')) rewrite.mutate()
+        }}
+        disabled={running || status.data?.available === false}
+        className="rounded-lg border border-line px-3 py-1.5 text-sm text-primary hover:bg-raised disabled:opacity-50"
+      >
+        {rewriting ? 'Rewriting takeaways…' : 'Rewrite takeaways'}
       </button>
       {status.data?.available === false && <span>Fetching needs ANTHROPIC_API_KEY for the summaries.</span>}
       {last && !running && (
@@ -85,6 +98,7 @@ function FetchBar() {
         </span>
       )}
       {start.error && <span className="text-critical">{start.error.message}</span>}
+      {rewrite.error && <span className="text-critical">{rewrite.error.message}</span>}
     </div>
   )
 }

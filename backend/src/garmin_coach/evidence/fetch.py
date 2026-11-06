@@ -9,7 +9,7 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session, sessionmaker
 
 from garmin_coach.coach.usage import Spending, record_usage
-from garmin_coach.evidence.library import SEED_PMIDS
+from garmin_coach.evidence.library import SEED_PMIDS, index_entry
 from garmin_coach.evidence.pubmed import STUDY_FILTER, Paper, PubMed
 from garmin_coach.evidence.summarize import Summarizer
 from garmin_coach.models import Evidence, EvidenceTopic
@@ -19,6 +19,19 @@ log = logging.getLogger(__name__)
 
 LAST_FETCH = "evidence_last_fetch"
 SEARCH_OVERSHOOT = 4
+
+
+def paper_of(entry: Evidence) -> Paper:
+    return Paper(
+        pmid=entry.pmid,
+        doi=entry.doi,
+        title=entry.title,
+        authors=entry.authors.split("; "),
+        journal=entry.journal,
+        year=entry.year,
+        abstract=entry.abstract,
+        publication_types=entry.publication_types.split(", "),
+    )
 
 
 @dataclass
@@ -45,6 +58,7 @@ class EvidenceFetcher:
         self.summarizer = summarizer
         self.monthly_budget_usd = monthly_budget_usd
         self.now = now
+        self.task: str | None = None
         self._lock = threading.Lock()
 
     @property
@@ -59,6 +73,12 @@ class EvidenceFetcher:
         if self.running:
             return False
         threading.Thread(target=self.fetch_all, daemon=True).start()
+        return True
+
+    def start_rewrite_in_background(self) -> bool:
+        if self.running:
+            return False
+        threading.Thread(target=self.rewrite_takeaways, daemon=True).start()
         return True
 
     def _known(self, session: Session, pmids: list[str]) -> set[str]:
@@ -105,6 +125,33 @@ class EvidenceFetcher:
                 session.commit()
             result.added += 1
 
+    def rewrite_takeaways(self) -> int | None:
+        if not self.ready or not self._lock.acquire(blocking=False):
+            return None
+        self.task = "rewrite"
+        rewritten = 0
+        try:
+            with self.sessions() as session:
+                for entry in session.scalars(select(Evidence).order_by(Evidence.id)).all():
+                    if self.spending(self.now().date()) >= self.monthly_budget_usd:
+                        log.warning("Stopped: the monthly API budget is used up")
+                        break
+                    try:
+                        summary, usage = self.summarizer.summarize(paper_of(entry))
+                    except Exception:
+                        log.exception("Rewriting the takeaway of evidence %d failed", entry.id)
+                        continue
+                    record_usage(session, self.summarizer.model, "evidence", None, usage)
+                    entry.takeaway = summary.takeaway
+                    index_entry(session, entry)
+                    session.commit()
+                    rewritten += 1
+                    log.info("Evidence %d, %s: %s", entry.id, entry.title, entry.takeaway)
+        finally:
+            self.task = None
+            self._lock.release()
+        return rewritten
+
     def _fetch_seeds(self, result: FetchResult) -> None:
         with self.sessions() as session:
             missing = [p for p in SEED_PMIDS if p not in self._known(session, list(SEED_PMIDS))]
@@ -127,6 +174,7 @@ class EvidenceFetcher:
     def fetch_all(self) -> FetchResult | None:
         if not self.ready or not self._lock.acquire(blocking=False):
             return None
+        self.task = "fetch"
         result = FetchResult(started_at=self.now().isoformat(timespec="seconds"))
         try:
             try:
@@ -149,5 +197,6 @@ class EvidenceFetcher:
             with self.sessions() as session:
                 set_state(session, LAST_FETCH, json.dumps(asdict(result)))
                 session.commit()
+            self.task = None
             self._lock.release()
         return result

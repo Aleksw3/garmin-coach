@@ -12,7 +12,7 @@ from garmin_coach.coach.agent import Coach, coach_settings
 from garmin_coach.coach.tools import ToolContext, run_tool
 from garmin_coach.config import Settings
 from garmin_coach.evidence.fetch import EvidenceFetcher
-from garmin_coach.evidence.library import SEED_PMIDS, search, seed_topics
+from garmin_coach.evidence.library import SEED_PMIDS, search, seed_topics, set_status
 from garmin_coach.evidence.pubmed import Paper, PubMed, parse_articles
 from garmin_coach.evidence.summarize import Summarizer, design_for
 from garmin_coach.models import ApiUsage, Evidence, EvidenceTopic
@@ -157,6 +157,30 @@ def test_fetch_stops_at_the_budget(topics: sessionmaker[Session]) -> None:
     assert any("budget" in error for error in result.errors)
 
 
+def test_rewrite_takeaways_updates_the_search_index(topics: sessionmaker[Session]) -> None:
+    fetcher = make_fetcher(topics, FakePubMed({}))
+    fetcher.fetch_all()
+    with topics() as session:
+        entry = session.scalars(select(Evidence)).first()
+        assert entry is not None
+        entry.takeaway = "For a trail runner who lifts and skis, lift."
+        set_status(session, entry, "approved", NOW)
+        session.commit()
+
+    assert fetcher.rewrite_takeaways() == len(SEED_PMIDS)
+    with topics() as session:
+        takeaways = set(session.scalars(select(Evidence.takeaway)))
+        assert takeaways == {"Keep two heavy lower-body sessions a week."}
+        assert search(session, "skis") == []
+        assert len(search(session, "lower-body")) == 1
+
+
+def test_rewrite_takeaways_stops_at_the_budget(topics: sessionmaker[Session]) -> None:
+    make_fetcher(topics, FakePubMed({})).fetch_all()
+
+    assert make_fetcher(topics, FakePubMed({}), budget=0.0).rewrite_takeaways() == 0
+
+
 def test_review_search_and_dispute(topics: sessionmaker[Session]) -> None:
     make_fetcher(topics, FakePubMed({"running": ["1", "2"]})).fetch_all()
 
@@ -204,6 +228,7 @@ def test_review_search_and_dispute(topics: sessionmaker[Session]) -> None:
     assert (status["running"], status["available"]) == (False, False)
     assert status["last"]["added"] == len(SEED_PMIDS) + 2
     assert client.post("/api/evidence/fetch").status_code == 409
+    assert client.post("/api/evidence/rewrite-takeaways").status_code == 409
 
 
 def test_design_prefers_pubmed_publication_types() -> None:

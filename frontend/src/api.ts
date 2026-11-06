@@ -488,6 +488,7 @@ export type EvidenceTopic = EvidenceTopicInput & {
 
 export type EvidenceFetchStatus = {
   running: boolean
+  task: 'fetch' | 'rewrite' | null
   available: boolean
   last: { started_at: string; finished_at: string | null; added: number; errors: string[] } | null
 }
@@ -508,6 +509,8 @@ export const updateEvidenceTopic = (id: number, topic: EvidenceTopicInput) =>
 export const deleteEvidenceTopic = (id: number) => send(`/api/evidence/topics/${id}`, { method: 'DELETE' })
 export const fetchEvidenceStatus = () => request<EvidenceFetchStatus>('/api/evidence/fetch')
 export const startEvidenceFetch = () => request<EvidenceFetchStatus>('/api/evidence/fetch', { method: 'POST' })
+export const startTakeawayRewrite = () =>
+  request<EvidenceFetchStatus>('/api/evidence/rewrite-takeaways', { method: 'POST' })
 
 export type ThresholdMethod = 'drift_test' | 'lab' | 'time_trial' | 'estimate'
 

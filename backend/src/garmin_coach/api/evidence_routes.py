@@ -79,6 +79,7 @@ class TopicOut(TopicIn):
 
 class FetchStatusOut(BaseModel):
     running: bool
+    task: str | None
     available: bool
     last: dict[str, object] | None
 
@@ -205,6 +206,7 @@ def fetch_status(session: ResearchDep, fetcher: EvidenceFetcher | None) -> Fetch
     last = get_state(session, LAST_FETCH)
     return FetchStatusOut(
         running=fetcher.running if fetcher else False,
+        task=fetcher.task if fetcher else None,
         available=fetcher is not None and fetcher.ready,
         last=json.loads(last) if last else None,
     )
@@ -221,4 +223,13 @@ def start_fetch(session: ResearchDep, request: Request) -> FetchStatusOut:
     if fetcher is None or not fetcher.ready:
         raise HTTPException(409, "Fetching needs an Anthropic API key for the summaries")
     fetcher.start_in_background()
+    return fetch_status(session, fetcher)
+
+
+@router.post("/rewrite-takeaways", response_model=FetchStatusOut)
+def start_rewrite(session: ResearchDep, request: Request) -> FetchStatusOut:
+    fetcher = get_fetcher(request)
+    if fetcher is None or not fetcher.ready:
+        raise HTTPException(409, "Rewriting needs an Anthropic API key")
+    fetcher.start_rewrite_in_background()
     return fetch_status(session, fetcher)

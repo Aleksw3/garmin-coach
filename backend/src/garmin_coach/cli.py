@@ -240,6 +240,18 @@ def command_structure_sessions(args: argparse.Namespace) -> None:
     print(f"Structured {len(rows)} sessions")
 
 
+def command_rewrite_takeaways(args: argparse.Namespace) -> None:
+    from garmin_coach.household import Household
+
+    settings = get_settings()
+    fetcher = Household(settings, open_research(settings), sync_service).fetcher
+    rewritten = fetcher.rewrite_takeaways()
+    if rewritten is None:
+        print("Add an Anthropic API key on the Settings page first", file=sys.stderr)
+        return
+    print(f"Rewrote {rewritten} takeaways")
+
+
 def command_serve(args: argparse.Namespace) -> None:
     import uvicorn
 
@@ -327,6 +339,12 @@ def build_parser() -> argparse.ArgumentParser:
         "structure-sessions", help="split old session texts into steps and exercises"
     )
     structure.set_defaults(run=command_structure_sessions)
+
+    takeaways = commands.add_parser(
+        "rewrite-takeaways",
+        help="write new takeaways for every research paper, replacing edited ones too",
+    )
+    takeaways.set_defaults(run=command_rewrite_takeaways)
 
     status = commands.add_parser("status", help="database and sync status")
     status.set_defaults(run=command_status)

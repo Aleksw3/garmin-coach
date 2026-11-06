@@ -1,5 +1,5 @@
 import sqlite3
-from datetime import datetime
+from datetime import date, datetime
 from pathlib import Path
 from typing import Any
 
@@ -96,6 +96,19 @@ def test_profiles_are_separate_and_share_research(tmp_path: Path) -> None:
     assert client.get("/api/usage", headers={"X-Profile": "jon"}).json()[
         "household_cost_usd"
     ] == pytest.approx(0.1)
+
+    with databases["kari"]() as session:
+        record_usage(session, "claude-haiku-5-5", "chat", None, usage(1_000_000))
+        session.commit()
+    with research() as session:
+        record_usage(session, "claude-haiku-5-5", "evidence", None, usage(1_000_000))
+        session.commit()
+    today = date.today().isoformat()
+    assert client.get("/api/usage/daily", params={"days": 7}, headers=kari).json() == [
+        {"day": today, "purpose": "chat", "cost_usd": pytest.approx(0.2), "calls": 2},
+        {"day": today, "purpose": "evidence", "cost_usd": pytest.approx(0.1), "calls": 1},
+    ]
+    assert len(client.get("/api/usage", params={"recent": 1}, headers=kari).json()["recent"]) == 1
 
     topic = {"name": "Skiing", "query": "skiing", "weekly_limit": 2}
     client.post("/api/evidence/topics", json=topic, headers=kari)

@@ -4,7 +4,7 @@ import threading
 from collections.abc import Callable, Generator, Iterator
 from contextlib import AbstractContextManager, nullcontext
 from dataclasses import dataclass
-from datetime import date, datetime
+from datetime import datetime
 from typing import Any
 
 import anthropic
@@ -88,7 +88,7 @@ class Coach:
         settings: CoachSettings,
         now: Callable[[], datetime] = datetime.now,
         research: sessionmaker[Session] | None = None,
-        spending: Callable[[date], float] | None = None,
+        spending: Spending | None = None,
     ) -> None:
         self.sessions = sessions
         self.research = research

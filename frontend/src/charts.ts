@@ -1,5 +1,5 @@
 import type { EChartsCoreOption } from 'echarts/core'
-import type { GroupTotals, HrZone, HrvPoint, Load, Trends, ZoneWeek } from './api'
+import type { DaySpend, GroupTotals, HrZone, HrvPoint, Load, Trends, ZoneWeek } from './api'
 import { addDays, number, shortDate } from './format'
 import { SPORT_GROUPS, displayGroup, type Theme } from './theme'
 
@@ -368,6 +368,80 @@ export function zoneWeeksOption(theme: Theme, weeks: ZoneWeek[], zones: HrZone[]
       data: weeks.map((week, column) => ({
         value: Number((week.seconds[index] / 3600).toFixed(2)),
         itemStyle: topZone[column] === index ? { borderRadius: [4, 4, 0, 0] } : undefined,
+      })),
+    })),
+  }
+}
+
+export const COST_GROUPS = [
+  { key: 'chat', label: 'Chat', purposes: ['chat'], slot: 1 },
+  { key: 'plan', label: 'Plans', purposes: ['plan', 'structure'], slot: 2 },
+  { key: 'proactive', label: 'Check-ins and reviews', purposes: ['checkin', 'feedback', 'review'], slot: 3 },
+  { key: 'research', label: 'Research', purposes: ['evidence'], slot: 4 },
+  { key: 'other', label: 'Other', purposes: [], slot: 7 },
+] as const
+
+export function costGroup(purpose: string): string {
+  return COST_GROUPS.find((g) => (g.purposes as readonly string[]).includes(purpose))?.key ?? 'other'
+}
+
+export function dailyCostOption(theme: Theme, days: string[], rows: DaySpend[]): EChartsCoreOption {
+  const sums = new Map<string, Map<string, number>>()
+  for (const row of rows) {
+    const day = sums.get(row.day) ?? new Map<string, number>()
+    const group = costGroup(row.purpose)
+    day.set(group, (day.get(group) ?? 0) + row.cost_usd)
+    sums.set(row.day, day)
+  }
+  const shown = COST_GROUPS.filter((g) => rows.some((row) => costGroup(row.purpose) === g.key))
+  const values = shown.map((g) => days.map((day) => sums.get(day)?.get(g.key) ?? 0))
+  const topSeries = days.map((_, column) =>
+    values.reduce((top, series, index) => (series[column] > 0 ? index : top), -1),
+  )
+  const gapWidth = days.length > 120 ? 0 : 1
+  return {
+    ...base(theme, true),
+    tooltip: {
+      ...base(theme, true).tooltip,
+      trigger: 'axis',
+      axisPointer: { type: 'shadow', shadowStyle: { color: theme.gridline, opacity: 0.4 } },
+      formatter: (params: { dataIndex: number }[]) => {
+        const column = params[0].dataIndex
+        const total = values.reduce((sum, series) => sum + series[column], 0)
+        const lines = shown
+          .map((group, index) => ({ group, value: values[index][column] }))
+          .filter((line) => line.value > 0)
+          .map((line) => tooltipRow(theme.series(line.group.slot), line.group.label, `$${line.value.toFixed(3)}`))
+        return (
+          `<div style="opacity:.75">${shortDate(days[column])}</div>` +
+          `<div style="font-weight:600">$${total.toFixed(3)}</div>` +
+          lines.join('')
+        )
+      },
+    },
+    xAxis: {
+      type: 'category',
+      data: days,
+      ...axisStyle(theme),
+      splitLine: { show: false },
+      axisLabel: { ...axisStyle(theme).axisLabel, formatter: shortDate },
+    },
+    yAxis: {
+      type: 'value',
+      ...axisStyle(theme),
+      axisLine: { show: false },
+      axisLabel: { ...axisStyle(theme).axisLabel, formatter: (value: number) => `$${value}` },
+    },
+    series: shown.map((group, index) => ({
+      name: group.label,
+      type: 'bar',
+      stack: 'total',
+      barMaxWidth: BAR_MAX_WIDTH,
+      itemStyle: { color: theme.series(group.slot), borderColor: theme.surface, borderWidth: gapWidth },
+      emphasis: { focus: 'none' },
+      data: values[index].map((value, column) => ({
+        value: Number(value.toFixed(4)),
+        itemStyle: topSeries[column] === index ? { borderRadius: [4, 4, 0, 0] } : undefined,
       })),
     })),
   }

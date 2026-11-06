@@ -1,6 +1,6 @@
 from collections.abc import Sequence
-from dataclasses import dataclass
-from datetime import date, datetime
+from dataclasses import dataclass, replace
+from datetime import date, datetime, time
 from typing import Any
 
 from sqlalchemy import func, select
@@ -71,6 +71,27 @@ def month_spend(session: Session, day: date) -> float:
     return float(total or 0.0)
 
 
+@dataclass(frozen=True)
+class DaySpend:
+    day: date
+    purpose: str
+    cost_usd: float
+    calls: int
+
+
+def daily_spend(session: Session, since: date) -> list[DaySpend]:
+    call_day = func.date(ApiUsage.created_at)
+    rows = session.execute(
+        select(call_day, ApiUsage.purpose, func.sum(ApiUsage.cost_usd), func.count(ApiUsage.id))
+        .where(ApiUsage.created_at >= datetime.combine(since, time()))
+        .group_by(call_day, ApiUsage.purpose)
+    )
+    return [
+        DaySpend(date.fromisoformat(day), purpose, float(cost), calls)
+        for day, purpose, cost, calls in rows
+    ]
+
+
 class Spending:
     def __init__(self, sources: Sequence[sessionmaker[Session]]) -> None:
         self.sources = list(sources)
@@ -81,3 +102,18 @@ class Spending:
             with sessions() as session:
                 total += month_spend(session, day)
         return total
+
+    def daily(self, since: date) -> list[DaySpend]:
+        totals: dict[tuple[date, str], DaySpend] = {}
+        for sessions in self.sources:
+            with sessions() as session:
+                for row in daily_spend(session, since):
+                    earlier = totals.get((row.day, row.purpose))
+                    if earlier is not None:
+                        row = replace(
+                            row,
+                            cost_usd=earlier.cost_usd + row.cost_usd,
+                            calls=earlier.calls + row.calls,
+                        )
+                    totals[(row.day, row.purpose)] = row
+        return sorted(totals.values(), key=lambda row: (row.day, row.purpose))

@@ -1,9 +1,9 @@
 import json
 from collections.abc import Iterator
-from datetime import date, datetime
+from datetime import date, datetime, timedelta
 from typing import Any, Literal
 
-from fastapi import APIRouter, HTTPException, Request, Response
+from fastapi import APIRouter, HTTPException, Query, Request, Response
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, ConfigDict, Field
 from sqlalchemy import func, select
@@ -16,6 +16,8 @@ from garmin_coach.profiles import athlete
 router = APIRouter(prefix="/api")
 
 RECENT_USAGE_ROWS = 20
+MAX_RECENT_USAGE_ROWS = 500
+MAX_USAGE_DAYS = 3650
 
 
 class ConversationOut(BaseModel):
@@ -106,6 +108,15 @@ class UsageRowOut(BaseModel):
     cache_read_tokens: int
     output_tokens: int
     cost_usd: float
+
+
+class DaySpendOut(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    day: date
+    purpose: str
+    cost_usd: float
+    calls: int
 
 
 class UsageOut(BaseModel):
@@ -289,15 +300,17 @@ def delete_note(session: SessionDep, note_id: int) -> Response:
 
 
 @router.get("/usage", response_model=UsageOut)
-def get_usage(session: SessionDep, profile: ProfileDep) -> UsageOut:
+def get_usage(
+    session: SessionDep,
+    profile: ProfileDep,
+    recent: int = Query(RECENT_USAGE_ROWS, ge=1, le=MAX_RECENT_USAGE_ROWS),
+) -> UsageOut:
     settings = profile.coach.settings
     today = date.today()
     calls = session.scalar(
         select(func.count(ApiUsage.id)).where(ApiUsage.created_at >= month_start(today))
     )
-    recent = session.scalars(
-        select(ApiUsage).order_by(ApiUsage.id.desc()).limit(RECENT_USAGE_ROWS)
-    ).all()
+    recent_rows = session.scalars(select(ApiUsage).order_by(ApiUsage.id.desc()).limit(recent)).all()
     return UsageOut(
         month_cost_usd=month_spend(session, today),
         household_cost_usd=profile.coach.spending(today),
@@ -306,8 +319,16 @@ def get_usage(session: SessionDep, profile: ProfileDep) -> UsageOut:
         chat_model=settings.choice("chat").model,
         plan_model=settings.choice("plan").model,
         background_model=settings.choice("checkin").model,
-        recent=[UsageRowOut.model_validate(row) for row in recent],
+        recent=[UsageRowOut.model_validate(row) for row in recent_rows],
     )
+
+
+@router.get("/usage/daily", response_model=list[DaySpendOut])
+def get_daily_usage(
+    profile: ProfileDep, days: int = Query(365, ge=1, le=MAX_USAGE_DAYS)
+) -> list[DaySpendOut]:
+    since = date.today() - timedelta(days=days - 1)
+    return [DaySpendOut.model_validate(row) for row in profile.coach.spending.daily(since)]
 
 
 class LatestCoachMessageOut(BaseModel):

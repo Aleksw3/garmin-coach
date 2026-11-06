@@ -211,6 +211,13 @@ export type UsageRow = {
   cost_usd: number
 }
 
+export type DaySpend = {
+  day: string
+  purpose: string
+  cost_usd: number
+  calls: number
+}
+
 export type Usage = {
   month_cost_usd: number
   household_cost_usd: number
@@ -245,7 +252,8 @@ export const updateGoal = (id: number, goal: GoalInput) => request<Goal>(`/api/g
 export const deleteGoal = (id: number) => send(`/api/goals/${id}`, { method: 'DELETE' })
 export const fetchNotes = () => request<Note[]>('/api/notes')
 export const deleteNote = (id: number) => send(`/api/notes/${id}`, { method: 'DELETE' })
-export const fetchUsage = () => request<Usage>('/api/usage')
+export const fetchUsage = (recent: number) => request<Usage>(`/api/usage?recent=${recent}`)
+export const fetchDailyUsage = (days: number) => request<DaySpend[]>(`/api/usage/daily?days=${days}`)
 
 export async function streamMessage(
   conversationId: number,

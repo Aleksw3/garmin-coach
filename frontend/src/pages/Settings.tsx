@@ -1,19 +1,27 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import { useState, type FormEvent } from 'react'
+import { useMemo, useState, type FormEvent } from 'react'
 import {
   currentProfile,
   fetchClaude,
+  fetchDailyUsage,
   fetchNotifications,
   fetchUsage,
   saveTopic,
   sendTestNotification,
   type Usage,
 } from '../api'
-import { Card, DataTable } from '../components/Card'
+import { dailyCostOption } from '../charts'
+import { Card, DataTable, TableToggle } from '../components/Card'
+import { Chart } from '../components/Chart'
 import { ClaudeForm, GarminStatus, KeyHelp } from '../components/Setup'
-import { number } from '../format'
+import { addDays, localToday, number } from '../format'
+import { useTheme } from '../theme'
 
 const WARN_SHARE = 0.8
+const COST_RANGES = [30, 90, 365]
+const HISTORY_DAYS = 365
+const RECENT_ROWS = 20
+const MORE_RECENT_ROWS = 200
 
 function dollars(value: number, digits = 2): string {
   return `$${value.toFixed(digits)}`
@@ -52,6 +60,78 @@ function BudgetMeter({ usage }: { usage: Usage }) {
         {state.label ?? `${usage.calls_this_month} API calls this month`}
       </p>
     </div>
+  )
+}
+
+function monthLabel(month: string): string {
+  return new Date(`${month}-01T00:00:00Z`).toLocaleDateString('en-GB', {
+    month: 'long',
+    year: 'numeric',
+    timeZone: 'UTC',
+  })
+}
+
+function CostHistoryCard() {
+  const theme = useTheme()
+  const [days, setDays] = useState(30)
+  const daily = useQuery({ queryKey: ['usage', 'daily'], queryFn: () => fetchDailyUsage(HISTORY_DAYS) })
+  const rows = useMemo(() => daily.data ?? [], [daily.data])
+  const today = localToday()
+  const shownDays = useMemo(
+    () => Array.from({ length: days }, (_, index) => addDays(today, index - days + 1)),
+    [days, today],
+  )
+  const shownRows = useMemo(() => rows.filter((row) => row.day >= shownDays[0]), [rows, shownDays])
+  const option = useMemo(() => dailyCostOption(theme, shownDays, shownRows), [theme, shownDays, shownRows])
+  const total = shownRows.reduce((sum, row) => sum + row.cost_usd, 0)
+  const months = useMemo(() => {
+    const totals = new Map<string, { cost: number; calls: number }>()
+    for (const row of rows) {
+      const month = totals.get(row.day.slice(0, 7)) ?? { cost: 0, calls: 0 }
+      month.cost += row.cost_usd
+      month.calls += row.calls
+      totals.set(row.day.slice(0, 7), month)
+    }
+    return [...totals.entries()].sort(([a], [b]) => b.localeCompare(a))
+  }, [rows])
+
+  return (
+    <Card
+      title="API cost per day"
+      subtitle="Everyone's Claude API spending, split by what the coach was doing"
+      className="lg:col-span-2"
+    >
+      <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
+        <p className="tabular text-sm text-secondary">
+          {dollars(total)} over the last {days} days, {dollars(total / days, 3)} a day on average
+        </p>
+        <div className="flex gap-2" role="group" aria-label="Time range">
+          {COST_RANGES.map((range) => (
+            <button
+              key={range}
+              type="button"
+              onClick={() => setDays(range)}
+              aria-pressed={days === range}
+              className={`rounded-lg border px-3 py-1.5 text-sm ${
+                days === range
+                  ? 'border-accent bg-raised font-semibold text-primary'
+                  : 'border-line text-secondary hover:bg-raised'
+              }`}
+            >
+              {range === HISTORY_DAYS ? '1 year' : `${range} days`}
+            </button>
+          ))}
+        </div>
+      </div>
+      {daily.error && <p className="text-xs text-critical">{daily.error.message}</p>}
+      <Chart option={option} label={`Stacked bar chart of API cost per day over the last ${days} days`} />
+      {months.length > 0 && (
+        <TableToggle
+          columns={['Month', 'Calls', 'Cost']}
+          rows={months.map(([month, totals]) => [monthLabel(month), number(totals.calls), dollars(totals.cost)])}
+        />
+      )}
+    </Card>
   )
 }
 
@@ -166,7 +246,8 @@ function ClaudeCard({ usage }: { usage: Usage }) {
 }
 
 export function SettingsPage() {
-  const usage = useQuery({ queryKey: ['usage'], queryFn: fetchUsage })
+  const [recentRows, setRecentRows] = useState(RECENT_ROWS)
+  const usage = useQuery({ queryKey: ['usage', recentRows], queryFn: () => fetchUsage(recentRows) })
   if (usage.isPending) return <p className="text-sm text-muted">Loading…</p>
   if (usage.error) return <p className="text-sm text-critical">{usage.error.message}</p>
   const data = usage.data
@@ -183,6 +264,7 @@ export function SettingsPage() {
         </a>
       </Card>
       <NotificationsCard />
+      <CostHistoryCard />
       <Card title="Recent API calls" subtitle="Cache reads cost a tenth of normal input or less" className="lg:col-span-2">
         {data.recent.length === 0 ? (
           <p className="text-sm text-muted">No calls yet.</p>
@@ -200,6 +282,15 @@ export function SettingsPage() {
               dollars(row.cost_usd, 4),
             ])}
           />
+        )}
+        {recentRows < MORE_RECENT_ROWS && data.recent.length === recentRows && (
+          <button
+            type="button"
+            onClick={() => setRecentRows(MORE_RECENT_ROWS)}
+            className="mt-3 rounded-lg border border-line px-3 py-1.5 text-sm text-primary hover:bg-raised"
+          >
+            Show the last {MORE_RECENT_ROWS} calls
+          </button>
         )}
       </Card>
     </div>

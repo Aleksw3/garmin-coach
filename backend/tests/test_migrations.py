@@ -7,7 +7,7 @@ from alembic.config import Config
 from alembic.migration import MigrationContext
 
 import garmin_coach.models  # noqa: F401
-from garmin_coach.db import Base, create_db_engine, include_object
+from garmin_coach.db import BUSY_TIMEOUT_MS, Base, create_db_engine, include_object
 from garmin_coach.migrate import MIGRATIONS_DIR
 
 
@@ -46,3 +46,10 @@ def test_shortened_chat_titles_get_the_first_line_back(tmp_path: Path) -> None:
     with create_db_engine(url).connect() as connection:
         titles = connection.execute(sa.text("SELECT title FROM conversation ORDER BY id"))
         assert list(titles.scalars()) == [question, "Short title"]
+
+
+def test_connections_use_wal_without_waiting_on_every_commit(database_url: str) -> None:
+    expected = {"journal_mode": "wal", "synchronous": 1, "busy_timeout": BUSY_TIMEOUT_MS}
+    with create_db_engine(database_url).connect() as connection:
+        actual = {name: connection.execute(sa.text(f"PRAGMA {name}")).scalar() for name in expected}
+    assert actual == expected

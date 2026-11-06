@@ -9,6 +9,7 @@ class Base(DeclarativeBase):
 
 
 FTS_TABLE = "evidence_fts"
+BUSY_TIMEOUT_MS = 30_000
 
 
 def include_object(_object: Any, name: str | None, type_: str, *_: Any) -> bool:
@@ -22,8 +23,11 @@ def create_db_engine(url: str) -> Engine:
     def configure_sqlite(connection: Any, _record: Any) -> None:
         cursor = connection.cursor()
         cursor.execute("PRAGMA journal_mode=WAL")
+        # With WAL a power cut can lose the last commits but never corrupts the file, and
+        # commits no longer wait on a slow SD card while they hold the write lock.
+        cursor.execute("PRAGMA synchronous=NORMAL")
         cursor.execute("PRAGMA foreign_keys=ON")
-        cursor.execute("PRAGMA busy_timeout=5000")
+        cursor.execute(f"PRAGMA busy_timeout={BUSY_TIMEOUT_MS}")
         cursor.close()
 
     return engine

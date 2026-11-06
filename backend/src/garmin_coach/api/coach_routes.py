@@ -45,6 +45,8 @@ class ChatItemOut(BaseModel):
 
 class ConversationDetailOut(ConversationOut):
     items: list[ChatItemOut]
+    cost_usd: float
+    context_tokens: int
 
 
 class NewMessage(BaseModel):
@@ -199,12 +201,29 @@ def get_conversation(session: SessionDep, conversation_id: int) -> ConversationD
     messages = session.scalars(
         select(Message).where(Message.conversation_id == conversation_id).order_by(Message.id)
     ).all()
+    cost = session.scalar(
+        select(func.sum(ApiUsage.cost_usd)).where(ApiUsage.conversation_id == conversation_id)
+    )
+    latest_call = session.scalars(
+        select(ApiUsage)
+        .where(ApiUsage.conversation_id == conversation_id)
+        .order_by(ApiUsage.id.desc())
+        .limit(1)
+    ).first()
     return ConversationDetailOut(
         id=conversation.id,
         kind=conversation.kind,
         title=conversation.title,
         updated_at=conversation.updated_at,
         items=chat_items(list(messages)),
+        cost_usd=float(cost or 0.0),
+        context_tokens=(
+            latest_call.input_tokens
+            + latest_call.cache_read_tokens
+            + latest_call.cache_write_tokens
+            if latest_call
+            else 0
+        ),
     )
 
 

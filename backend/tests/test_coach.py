@@ -292,6 +292,8 @@ def test_chat_api_streams_events(seeded: sessionmaker[Session]) -> None:
 
     detail = client.get(f"/api/conversations/{created['id']}").json()
     assert [item["text"] for item in detail["items"]] == ["Hi coach", "Hello from the coach."]
+    assert detail["cost_usd"] == pytest.approx(events[-1]["turn_cost_usd"])
+    assert detail["context_tokens"] == 2100
     assert client.get("/api/usage").json()["calls_this_month"] == 1
 
     goal = {"kind": "race", "title": "Test race", "target_date": "2027-06-01", "distance_km": 42}

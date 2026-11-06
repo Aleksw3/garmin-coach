@@ -6,9 +6,11 @@ import {
   fetchConversation,
   fetchConversations,
   streamMessage,
+  type ConversationDetail,
 } from '../api'
 import { applyEvent, type Pending } from '../chatEvents'
 import { Bubble } from '../components/ChatParts'
+import { number } from '../format'
 
 const STARTERS = [
   'How did my last 4 weeks of running compare to what my race needs?',
@@ -17,6 +19,29 @@ const STARTERS = [
 ]
 
 type Cost = { turn: number; month: number; budget: number }
+
+const LONG_THREAD_TOKENS = 30_000
+
+function ThreadSize({ detail, onNew }: { detail: ConversationDetail; onNew: () => void }) {
+  if (detail.context_tokens === 0) return null
+  return (
+    <div className="tabular text-xs">
+      <p className="text-muted">
+        This conversation is {number(detail.context_tokens / 1000, 1)}K tokens and has cost $
+        {detail.cost_usd.toFixed(2)} so far. Every message sends all of it again.
+      </p>
+      {detail.context_tokens >= LONG_THREAD_TOKENS && (
+        <p className="mt-1 text-warning">
+          ▲ A long conversation costs more per message. For a new topic,{' '}
+          <button type="button" onClick={onNew} className="text-accent underline">
+            start a new conversation
+          </button>
+          . The coach can read its saved notes there too.
+        </p>
+      )}
+    </div>
+  )
+}
 
 function Composer({ disabled, onSend }: { disabled: boolean; onSend: (text: string) => void }) {
   const [text, setText] = useState('')
@@ -57,7 +82,15 @@ function Composer({ disabled, onSend }: { disabled: boolean; onSend: (text: stri
   )
 }
 
-function Thread({ id, onCreated }: { id: number | null; onCreated: (id: number) => void }) {
+function Thread({
+  id,
+  onCreated,
+  onNew,
+}: {
+  id: number | null
+  onCreated: (id: number) => void
+  onNew: () => void
+}) {
   const queryClient = useQueryClient()
   const conversation = useQuery({
     queryKey: ['conversation', id],
@@ -140,6 +173,7 @@ function Thread({ id, onCreated }: { id: number | null; onCreated: (id: number) 
             {cost.budget.toFixed(2)}.
           </p>
         )}
+        {conversation.data && !busy && <ThreadSize detail={conversation.data} onNew={onNew} />}
         <div ref={bottom} />
       </div>
       <Composer disabled={busy} onSend={(text) => void send(text)} />
@@ -221,7 +255,7 @@ export function ChatPage() {
           </button>
         )}
       </aside>
-      <Thread key={threadKey} id={active} onCreated={(id) => setSelected(id)} />
+      <Thread key={threadKey} id={active} onCreated={(id) => setSelected(id)} onNew={() => open(null)} />
     </div>
   )
 }

@@ -160,7 +160,7 @@ export type ToolCall = { id: string; name: string; input: Record<string, unknown
 
 export type ChatItem = { role: 'user' | 'coach' | 'event'; text: string; tools: ToolCall[]; created_at: string }
 
-export type ConversationDetail = Conversation & { items: ChatItem[] }
+export type ConversationDetail = Conversation & { items: ChatItem[]; cost_usd: number; context_tokens: number }
 
 export type ChatEvent =
   | { type: 'text'; text: string }

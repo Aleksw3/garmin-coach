@@ -69,17 +69,20 @@ class EvidenceFetcher:
     def ready(self) -> bool:
         return self.summarizer.create is not None
 
-    def start_in_background(self) -> bool:
+    def _start(self, target: Callable[..., object], *args: object) -> bool:
         if self.running:
             return False
-        threading.Thread(target=self.fetch_all, daemon=True).start()
+        threading.Thread(target=target, args=args, daemon=True).start()
         return True
 
+    def start_in_background(self) -> bool:
+        return self._start(self.fetch_all)
+
     def start_rewrite_in_background(self) -> bool:
-        if self.running:
-            return False
-        threading.Thread(target=self.rewrite_takeaways, daemon=True).start()
-        return True
+        return self._start(self.rewrite_takeaways)
+
+    def start_adding_in_background(self, pmids: list[str]) -> bool:
+        return self._start(self.add_papers, pmids)
 
     def _known(self, session: Session, pmids: list[str]) -> set[str]:
         return set(session.scalars(select(Evidence.pmid).where(Evidence.pmid.in_(pmids))))
@@ -171,27 +174,45 @@ class EvidenceFetcher:
             session.get_one(EvidenceTopic, topic_id).last_fetched_at = self.now()
             session.commit()
 
+    def _fetch_everything(self, result: FetchResult) -> None:
+        try:
+            self._fetch_seeds(result)
+        except Exception as error:
+            log.exception("Fetching the seed papers failed")
+            result.errors.append(f"Seed papers: {error}")
+        with self.sessions() as session:
+            topic_ids = list(session.scalars(select(EvidenceTopic.id).where(EvidenceTopic.active)))
+        for topic_id in topic_ids:
+            try:
+                self._fetch_topic(topic_id, result)
+            except Exception as error:
+                log.exception("Fetching evidence topic %d failed", topic_id)
+                result.errors.append(f"Topic {topic_id}: {error}")
+
+    def _add(self, pmids: list[str], result: FetchResult) -> None:
+        with self.sessions() as session:
+            known = self._known(session, pmids)
+        try:
+            papers = self.pubmed.fetch([pmid for pmid in dict.fromkeys(pmids) if pmid not in known])
+        except Exception as error:
+            log.exception("Fetching chosen papers failed")
+            result.errors.append(f"PubMed: {error}")
+            return
+        self._store(papers, None, result)
+
     def fetch_all(self) -> FetchResult | None:
+        return self._run("fetch", self._fetch_everything)
+
+    def add_papers(self, pmids: list[str]) -> FetchResult | None:
+        return self._run("add", lambda result: self._add(pmids, result))
+
+    def _run(self, task: str, work: Callable[[FetchResult], None]) -> FetchResult | None:
         if not self.ready or not self._lock.acquire(blocking=False):
             return None
-        self.task = "fetch"
+        self.task = task
         result = FetchResult(started_at=self.now().isoformat(timespec="seconds"))
         try:
-            try:
-                self._fetch_seeds(result)
-            except Exception as error:
-                log.exception("Fetching the seed papers failed")
-                result.errors.append(f"Seed papers: {error}")
-            with self.sessions() as session:
-                topic_ids = list(
-                    session.scalars(select(EvidenceTopic.id).where(EvidenceTopic.active))
-                )
-            for topic_id in topic_ids:
-                try:
-                    self._fetch_topic(topic_id, result)
-                except Exception as error:
-                    log.exception("Fetching evidence topic %d failed", topic_id)
-                    result.errors.append(f"Topic {topic_id}: {error}")
+            work(result)
         finally:
             result.finished_at = self.now().isoformat(timespec="seconds")
             with self.sessions() as session:

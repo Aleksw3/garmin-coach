@@ -10,7 +10,7 @@ from garmin_coach.sync import get_state, set_state
 
 TOPICS_SEEDED = "evidence_topics_seeded"
 SEARCH_LIMIT = 8
-STATUSES = ("pending", "approved", "rejected")
+STATUSES = ("pending", "approved", "rejected", "skipped")
 
 DEFAULT_TOPICS = (
     (

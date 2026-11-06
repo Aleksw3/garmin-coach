@@ -472,7 +472,7 @@ export type EvidenceEntry = EvidenceFields & {
   abstract: string
   publication_types: string
   grade: string
-  status: 'pending' | 'approved' | 'rejected'
+  status: 'pending' | 'approved' | 'rejected' | 'skipped'
   disputed_by_id: number | null
   citation: string
   created_at: string
@@ -490,11 +490,27 @@ export type EvidenceTopic = EvidenceTopicInput & {
 
 export type EvidenceFetchStatus = {
   running: boolean
-  task: 'fetch' | 'rewrite' | null
+  task: 'fetch' | 'rewrite' | 'add' | null
   available: boolean
   last: { started_at: string; finished_at: string | null; added: number; errors: string[] } | null
 }
 
+export type PubMedHit = {
+  pmid: string
+  doi: string | null
+  title: string
+  authors: string[]
+  journal: string | null
+  year: number | null
+  publication_types: string[]
+  abstract: string
+  status: EvidenceEntry['status'] | null
+}
+
+export const searchPubMed = (q: string, limit: number) =>
+  request<PubMedHit[]>(`/api/evidence/pubmed?q=${encodeURIComponent(q)}&limit=${limit}`)
+export const addPapers = (pmids: string[]) =>
+  request<EvidenceFetchStatus>('/api/evidence/add', json('POST', { pmids }))
 export const fetchEvidence = (status: EvidenceEntry['status'], q = '') =>
   request<EvidenceEntry[]>(`/api/evidence?status=${status}${q ? `&q=${encodeURIComponent(q)}` : ''}`)
 export const saveEvidence = (id: number, fields: EvidenceFields) =>

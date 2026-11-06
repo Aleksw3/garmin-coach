@@ -1,12 +1,14 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { useEffect, useRef, useState, type FormEvent, type ReactNode } from 'react'
 import {
+  addPapers,
   createEvidenceTopic,
   deleteEvidenceTopic,
   fetchEvidence,
   fetchEvidenceStatus,
   fetchEvidenceTopics,
   saveEvidence,
+  searchPubMed,
   setDisputedBy,
   setEvidenceStatus,
   startEvidenceFetch,
@@ -16,6 +18,7 @@ import {
   type EvidenceFields,
   type EvidenceTopic,
   type EvidenceTopicInput,
+  type PubMedHit,
 } from '../api'
 import { Card } from '../components/Card'
 import { number, sentence, shortDate } from '../format'
@@ -34,7 +37,16 @@ const TEXT_FIELDS = ['claim', 'population', 'intervention', 'outcome', 'takeaway
 const INPUT =
   'w-full min-w-0 rounded-lg border border-line bg-page px-2 py-1.5 text-base text-primary focus:border-accent focus:outline-none sm:text-sm'
 
-type Tab = 'queue' | 'library' | 'topics'
+type Tab = 'queue' | 'library' | 'find' | 'skipped' | 'topics'
+
+const SEARCH_SIZES = [10, 20, 50, 100]
+
+const STATUS_LABELS: Record<EvidenceEntry['status'], string> = {
+  pending: 'To review',
+  approved: 'In the library',
+  rejected: 'Rejected',
+  skipped: 'Not relevant',
+}
 
 function paperUrl(entry: EvidenceEntry): string {
   return entry.doi ? `https://doi.org/${entry.doi}` : `https://pubmed.ncbi.nlm.nih.gov/${entry.pmid}/`
@@ -44,7 +56,7 @@ function useRefreshEvidence() {
   const queryClient = useQueryClient()
   return () =>
     Promise.all(
-      ['evidence', 'evidence-topics'].map((key) => queryClient.invalidateQueries({ queryKey: [key] })),
+      ['evidence', 'evidence-topics', 'pubmed'].map((key) => queryClient.invalidateQueries({ queryKey: [key] })),
     )
 }
 
@@ -73,7 +85,7 @@ function FetchBar() {
         disabled={running || status.data?.available === false}
         className="rounded-lg border border-line px-3 py-1.5 text-sm text-primary hover:bg-raised disabled:opacity-50"
       >
-        {running && !rewriting ? 'Fetching papers…' : 'Fetch now'}
+        {running && !rewriting ? (status.data?.task === 'add' ? 'Adding papers…' : 'Fetching papers…') : 'Fetch now'}
       </button>
       <button
         type="button"
@@ -269,14 +281,31 @@ function EntryCard({ entry, library }: { entry: EvidenceEntry; library: Evidence
           <button type="button" onClick={() => setEditing(true)} className={button}>
             Edit
           </button>
-          {entry.status === 'approved' && (
+          {entry.status === 'pending' && (
+            <button
+              type="button"
+              onClick={() => status.mutate('skipped')}
+              title="Read it, not useful for you. The coach will not cite it and it will not be fetched again."
+              className={button}
+            >
+              Not relevant
+            </button>
+          )}
+          {(entry.status === 'approved' || entry.status === 'skipped') && (
             <button type="button" onClick={() => status.mutate('pending')} className={button}>
               Back to review
             </button>
           )}
-          <button type="button" onClick={() => status.mutate('rejected')} className={button}>
-            Reject
-          </button>
+          {entry.status !== 'skipped' && (
+            <button
+              type="button"
+              onClick={() => status.mutate('rejected')}
+              title="The study is weak or wrong. The coach will not cite it."
+              className={button}
+            >
+              Reject
+            </button>
+          )}
           {entry.status === 'approved' && library.length > 1 && (
             <label className="flex items-center gap-2 text-xs text-muted">
               Disputed by
@@ -302,15 +331,21 @@ function EntryCard({ entry, library }: { entry: EvidenceEntry; library: Evidence
   )
 }
 
-function Queue({ library }: { library: EvidenceEntry[] }) {
-  const queue = useQuery({ queryKey: ['evidence', 'pending'], queryFn: () => fetchEvidence('pending') })
-  if (queue.isPending) return <p className="text-sm text-muted">Loading…</p>
-  if (queue.data?.length === 0) {
-    return <p className="text-sm text-muted">Nothing to review. New papers arrive with the weekly fetch.</p>
-  }
+function EntryList({
+  status,
+  empty,
+  library,
+}: {
+  status: EvidenceEntry['status']
+  empty: string
+  library: EvidenceEntry[]
+}) {
+  const entries = useQuery({ queryKey: ['evidence', status], queryFn: () => fetchEvidence(status) })
+  if (entries.isPending) return <p className="text-sm text-muted">Loading…</p>
+  if (entries.data?.length === 0) return <p className="text-sm text-muted">{empty}</p>
   return (
     <div className="space-y-4">
-      {queue.data?.map((entry) => (
+      {entries.data?.map((entry) => (
         <EntryCard key={entry.id} entry={entry} library={library} />
       ))}
     </div>
@@ -335,6 +370,135 @@ function Library({ library }: { library: EvidenceEntry[] }) {
       {shown.map((entry) => (
         <EntryCard key={entry.id} entry={entry} library={library} />
       ))}
+    </div>
+  )
+}
+
+function hitCitation(hit: PubMedHit): string {
+  const who = hit.authors.length > 1 ? `${hit.authors[0]} et al.` : (hit.authors[0] ?? 'Unknown')
+  const types = hit.publication_types.filter((type) => type !== 'Journal Article').join(', ')
+  return `${who} (${hit.year ?? 'n.d.'}), ${hit.journal ?? 'no journal'}${types ? `. ${types}` : ''}`
+}
+
+function SearchHit({ hit, chosen, onToggle }: { hit: PubMedHit; chosen: boolean; onToggle: () => void }) {
+  return (
+    <section className="flex min-w-0 gap-3 rounded-xl border border-line bg-surface p-4">
+      <input
+        type="checkbox"
+        aria-label={`Add ${hit.title}`}
+        checked={chosen}
+        disabled={hit.status !== null}
+        onChange={onToggle}
+        className="mt-1 shrink-0"
+      />
+      <div className="min-w-0">
+        <a
+          href={`https://pubmed.ncbi.nlm.nih.gov/${hit.pmid}/`}
+          target="_blank"
+          rel="noreferrer"
+          className="text-sm font-semibold text-primary hover:underline"
+        >
+          {hit.title}
+        </a>
+        <p className="mt-0.5 text-xs text-muted">
+          {hitCitation(hit)}
+          {hit.status && <span className="text-accent">. {STATUS_LABELS[hit.status]}</span>}
+        </p>
+        <details className="mt-2 text-xs text-muted">
+          <summary className="cursor-pointer select-none">Abstract</summary>
+          <p className="mt-1 whitespace-pre-wrap text-secondary">{hit.abstract}</p>
+        </details>
+      </div>
+    </section>
+  )
+}
+
+function FindPapers() {
+  const queryClient = useQueryClient()
+  const [draft, setDraft] = useState('')
+  const [query, setQuery] = useState('')
+  const [size, setSize] = useState(20)
+  const [chosen, setChosen] = useState<Set<string>>(new Set())
+  const hits = useQuery({
+    queryKey: ['pubmed', query, size],
+    queryFn: () => searchPubMed(query, size),
+    enabled: query.length > 2,
+  })
+  const fetchStatus = useQuery({ queryKey: ['evidence-fetch'], queryFn: fetchEvidenceStatus })
+  const add = useMutation({
+    mutationFn: () => addPapers([...chosen]),
+    onSuccess: async () => {
+      setChosen(new Set())
+      await queryClient.invalidateQueries({ queryKey: ['evidence-fetch'] })
+    },
+  })
+  const toggle = (pmid: string) => {
+    const next = new Set(chosen)
+    if (next.has(pmid)) next.delete(pmid)
+    else next.add(pmid)
+    setChosen(next)
+  }
+  const submit = (event: FormEvent) => {
+    event.preventDefault()
+    setQuery(draft.trim())
+    setChosen(new Set())
+    add.reset()
+  }
+  const running = fetchStatus.data?.running ?? false
+  return (
+    <div className="space-y-4">
+      <form onSubmit={submit} className="flex items-end gap-2">
+        <label className="block min-w-0 flex-1 text-xs text-muted">
+          Search PubMed for reviews, trials and meta-analyses from any year. Papers with every word in the title come
+          first. PubMed syntax such as [tiab] or OR works too.
+          <input
+            className={INPUT}
+            value={draft}
+            onChange={(e) => setDraft(e.target.value)}
+            placeholder="for example downhill training"
+          />
+        </label>
+        <label className="block shrink-0 text-xs text-muted">
+          Papers
+          <select className={INPUT} value={size} onChange={(e) => setSize(Number(e.target.value))}>
+            {SEARCH_SIZES.map((option) => (
+              <option key={option} value={option}>
+                {option}
+              </option>
+            ))}
+          </select>
+        </label>
+        <button
+          type="submit"
+          disabled={draft.trim().length < 3}
+          className="rounded-lg bg-accent px-3 py-1.5 text-sm font-semibold text-white disabled:opacity-40"
+        >
+          Search
+        </button>
+      </form>
+      {hits.isFetching && <p className="text-sm text-muted">Searching PubMed…</p>}
+      {hits.error && <p className="text-sm text-critical">{hits.error.message}</p>}
+      {hits.data?.length === 0 && <p className="text-sm text-muted">PubMed found no matching studies.</p>}
+      {hits.data && hits.data.length > 0 && (
+        <>
+          <div className="sticky top-0 z-10 flex flex-wrap items-center gap-3 bg-page py-2 text-xs text-muted">
+            <button
+              type="button"
+              onClick={() => add.mutate()}
+              disabled={chosen.size === 0 || running || add.isPending}
+              className="rounded-lg bg-accent px-3 py-1.5 text-sm font-semibold text-white disabled:opacity-40"
+            >
+              Add {chosen.size} {chosen.size === 1 ? 'paper' : 'papers'} to review
+            </button>
+            <span>Tick the papers worth reading. The coach summarizes each one for less than a cent.</span>
+            {add.isSuccess && <span className="text-accent">The papers appear under To review when the summaries are done.</span>}
+            {add.error && <span className="text-critical">{add.error.message}</span>}
+          </div>
+          {hits.data.map((hit) => (
+            <SearchHit key={hit.pmid} hit={hit} chosen={chosen.has(hit.pmid)} onToggle={() => toggle(hit.pmid)} />
+          ))}
+        </>
+      )}
     </div>
   )
 }
@@ -465,6 +629,8 @@ export function ResearchPage() {
   const tabs: { key: Tab; label: string }[] = [
     { key: 'queue', label: `To review (${pending.data?.length ?? 0})` },
     { key: 'library', label: `Library (${library.data?.length ?? 0})` },
+    { key: 'find', label: 'Find papers' },
+    { key: 'skipped', label: 'Not relevant' },
     { key: 'topics', label: 'Topics' },
   ]
   return (
@@ -489,7 +655,17 @@ export function ResearchPage() {
         The library is shared by every profile. A paper anyone approves reaches every coach, with the notes on it.
       </p>
       <FetchBar />
-      {tab === 'queue' && <Queue library={library.data ?? []} />}
+      {tab === 'queue' && (
+        <EntryList
+          status="pending"
+          empty="Nothing to review. New papers arrive with the weekly fetch, or find some yourself."
+          library={library.data ?? []}
+        />
+      )}
+      {tab === 'skipped' && (
+        <EntryList status="skipped" empty="No papers marked as not relevant." library={library.data ?? []} />
+      )}
+      {tab === 'find' && <FindPapers />}
       {tab === 'library' && <Library library={library.data ?? []} />}
       {tab === 'topics' && <Topics />}
     </div>

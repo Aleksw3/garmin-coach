@@ -1,4 +1,5 @@
 import json
+import re
 import time
 import urllib.parse
 import urllib.request
@@ -10,10 +11,12 @@ BASE_URL = "https://eutils.ncbi.nlm.nih.gov/entrez/eutils/"
 REQUEST_GAP_S = 0.4
 TIMEOUT_S = 30
 
-STUDY_FILTER = (
+STUDIES_ONLY = (
     " AND (meta-analysis[pt] OR systematic review[pt] OR randomized controlled trial[pt]"
-    ' OR review[pt] OR clinical trial[pt]) AND hasabstract AND english[la] AND "last 5 years"[dp]'
+    " OR review[pt] OR clinical trial[pt]) AND hasabstract AND english[la]"
 )
+STUDY_FILTER = STUDIES_ONLY + ' AND "last 5 years"[dp]'
+PUBMED_SYNTAX = re.compile(r'[\[\]"()*]|\b(?:AND|OR|NOT)\b')
 
 
 @dataclass
@@ -99,6 +102,18 @@ class PubMed:
         )
         ids: list[str] = json.loads(body)["esearchresult"]["idlist"]
         return ids
+
+    def find_studies(self, query: str, limit: int) -> list[str]:
+        if PUBMED_SYNTAX.search(query):
+            return self.search(f"({query}){STUDIES_ONLY}", limit)
+        pmids: list[str] = []
+        for field in ("ti", "tiab"):
+            words = " AND ".join(f"{word}[{field}]" for word in query.split())
+            found = self.search(f"({words}){STUDIES_ONLY}", limit)
+            pmids += [pmid for pmid in found if pmid not in pmids]
+            if len(pmids) >= limit:
+                break
+        return pmids[:limit]
 
     def fetch(self, pmids: list[str]) -> list[Paper]:
         if not pmids:

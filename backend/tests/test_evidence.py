@@ -13,7 +13,7 @@ from garmin_coach.coach.tools import ToolContext, run_tool
 from garmin_coach.config import Settings
 from garmin_coach.evidence.fetch import EvidenceFetcher
 from garmin_coach.evidence.library import SEED_PMIDS, search, seed_topics, set_status
-from garmin_coach.evidence.pubmed import Paper, PubMed, parse_articles
+from garmin_coach.evidence.pubmed import STUDIES_ONLY, Paper, PubMed, parse_articles
 from garmin_coach.evidence.summarize import Summarizer, design_for
 from garmin_coach.models import ApiUsage, Evidence, EvidenceTopic
 from garmin_coach.sync import SyncService
@@ -229,6 +229,53 @@ def test_review_search_and_dispute(topics: sessionmaker[Session]) -> None:
     assert status["last"]["added"] == len(SEED_PMIDS) + 2
     assert client.post("/api/evidence/fetch").status_code == 409
     assert client.post("/api/evidence/rewrite-takeaways").status_code == 409
+
+
+def test_search_pubmed_and_add_chosen_papers(topics: sessionmaker[Session]) -> None:
+    pubmed = FakePubMed(
+        {
+            "(downhill[ti] AND training[ti])": ["31"],
+            "(downhill[tiab] AND training[tiab])": ["32", "31"],
+        }
+    )
+    fetcher = make_fetcher(topics, pubmed)
+
+    def make_service() -> SyncService:
+        return SyncService(FakeGarmin([]), topics, request_delay=0, sleep=lambda _: None)
+
+    coach = Coach(topics, None, coach_settings(Settings.model_construct()))
+    client = TestClient(
+        single_app(topics, make_service, coach, schedule_sync=False, evidence_fetcher=fetcher)
+    )
+
+    hits = client.get("/api/evidence/pubmed", params={"q": "downhill training"}).json()
+    assert [(hit["pmid"], hit["status"]) for hit in hits] == [("31", None), ("32", None)]
+    assert pubmed.searches == [
+        (f"(downhill[ti] AND training[ti]){STUDIES_ONLY}", 20),
+        (f"(downhill[tiab] AND training[tiab]){STUDIES_ONLY}", 20),
+    ]
+    pubmed.searches.clear()
+    client.get("/api/evidence/pubmed", params={"q": '"downhill running"[tiab]', "limit": 50})
+    assert pubmed.searches == [(f'("downhill running"[tiab]){STUDIES_ONLY}', 50)]
+    assert (
+        client.get("/api/evidence/pubmed", params={"q": "hills", "limit": 101}).status_code == 422
+    )
+    assert client.post("/api/evidence/add", json={"pmids": ["31 OR 1"]}).status_code == 422
+
+    result = fetcher.add_papers(["31", "31"])
+    assert result is not None
+    assert (result.added, result.errors) == (1, [])
+    hits = client.get("/api/evidence/pubmed", params={"q": "downhill training"}).json()
+    assert [hit["status"] for hit in hits] == ["pending", None]
+    assert client.get("/api/evidence/fetch").json()["last"]["added"] == 1
+
+    [entry] = client.get("/api/evidence").json()
+    assert (entry["pmid"], entry["topic_id"]) == ("31", None)
+    client.post(f"/api/evidence/{entry['id']}/status", json={"status": "skipped"})
+    assert client.get("/api/evidence").json() == []
+    assert [e["pmid"] for e in client.get("/api/evidence?status=skipped").json()] == ["31"]
+    again = fetcher.add_papers(["31"])
+    assert again is not None and again.added == 0
 
 
 def test_design_prefers_pubmed_publication_types() -> None:

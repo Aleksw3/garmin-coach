@@ -1,4 +1,5 @@
 import json
+from dataclasses import asdict
 from datetime import datetime
 from typing import Annotated, Literal
 
@@ -17,6 +18,9 @@ router = APIRouter(prefix="/api/evidence")
 
 Design = Literal[DESIGNS]  # type: ignore[valid-type]
 Effect = Literal[EFFECTS]  # type: ignore[valid-type]
+Status = Literal["pending", "approved", "rejected", "skipped"]
+
+MAX_SEARCH_RESULTS = 100
 
 
 class EvidenceEdit(BaseModel):
@@ -54,7 +58,25 @@ class EvidenceOut(EvidenceEdit):
 
 
 class StatusIn(BaseModel):
-    status: Literal["pending", "approved", "rejected"]
+    status: Status
+
+
+class PubMedHitOut(BaseModel):
+    pmid: str
+    doi: str | None
+    title: str
+    authors: list[str]
+    journal: str | None
+    year: int | None
+    publication_types: list[str]
+    abstract: str
+    status: str | None
+
+
+class AddPapersIn(BaseModel):
+    pmids: list[Annotated[str, Field(pattern=r"^\d{1,12}$")]] = Field(
+        min_length=1, max_length=MAX_SEARCH_RESULTS
+    )
 
 
 class DisputeIn(BaseModel):
@@ -103,7 +125,7 @@ def get_fetcher(request: Request) -> EvidenceFetcher | None:
 @router.get("", response_model=list[EvidenceOut])
 def list_evidence(
     session: ResearchDep,
-    status: Literal["pending", "approved", "rejected"] = "pending",
+    status: Status = "pending",
     q: Annotated[str | None, Query(max_length=300)] = None,
 ) -> list[EvidenceOut]:
     if q and status == "approved":
@@ -223,6 +245,41 @@ def start_fetch(session: ResearchDep, request: Request) -> FetchStatusOut:
     if fetcher is None or not fetcher.ready:
         raise HTTPException(409, "Fetching needs an Anthropic API key for the summaries")
     fetcher.start_in_background()
+    return fetch_status(session, fetcher)
+
+
+@router.get("/pubmed", response_model=list[PubMedHitOut])
+def search_pubmed(
+    session: ResearchDep,
+    request: Request,
+    q: Annotated[str, Query(min_length=3, max_length=300)],
+    limit: Annotated[int, Query(ge=1, le=MAX_SEARCH_RESULTS)] = 20,
+) -> list[PubMedHitOut]:
+    fetcher = get_fetcher(request)
+    if fetcher is None:
+        raise HTTPException(409, "The research library is not set up")
+    try:
+        papers = fetcher.pubmed.fetch(fetcher.pubmed.find_studies(q, limit))
+    except Exception as error:
+        raise HTTPException(502, f"PubMed did not answer: {error}") from error
+    statuses = {
+        pmid: status
+        for pmid, status in session.execute(
+            select(Evidence.pmid, Evidence.status).where(
+                Evidence.pmid.in_([paper.pmid for paper in papers])
+            )
+        )
+    }
+    return [PubMedHitOut(**asdict(paper), status=statuses.get(paper.pmid)) for paper in papers]
+
+
+@router.post("/add", response_model=FetchStatusOut)
+def add_papers(session: ResearchDep, request: Request, body: AddPapersIn) -> FetchStatusOut:
+    fetcher = get_fetcher(request)
+    if fetcher is None or not fetcher.ready:
+        raise HTTPException(409, "Adding papers needs an Anthropic API key for the summaries")
+    if not fetcher.start_adding_in_background(body.pmids):
+        raise HTTPException(409, "A fetch or rewrite is already running. Try again when it ends.")
     return fetch_status(session, fetcher)
 
 

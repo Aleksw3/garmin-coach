@@ -1,3 +1,4 @@
+import subprocess
 from datetime import date, timedelta
 
 import pytest
@@ -71,3 +72,14 @@ def test_trends_rejects_unreasonable_week_counts(client: TestClient) -> None:
 def test_sync_status_and_trigger(client: TestClient) -> None:
     assert client.get("/api/sync").json()["running"] is False
     assert client.post("/api/sync").status_code == 200
+
+
+def test_version_names_the_checked_out_commit(client: TestClient) -> None:
+    commit = subprocess.run(
+        ["git", "rev-parse", "--short", "HEAD"], capture_output=True, text=True, check=True
+    ).stdout.strip()
+
+    version = client.get("/api/version").json()
+
+    assert version["commit"] == commit
+    assert version["subject"]

@@ -154,6 +154,10 @@ export const fetchTrends = (weeks: number) => request<Trends>(`/api/trends?weeks
 export const fetchSyncStatus = () => request<SyncStatus>('/api/sync')
 export const startSync = () => request<SyncStatus>('/api/sync', { method: 'POST' })
 
+export type Version = { commit: string | null; committed_at: string | null; subject: string | null }
+
+export const fetchVersion = () => request<Version>('/api/version')
+
 export type Conversation = { id: number; kind: 'chat' | 'coach'; title: string | null; updated_at: string }
 
 export type ToolCall = { id: string; name: string; input: Record<string, unknown>; ok: boolean | null }

@@ -1,6 +1,14 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { Suspense, lazy, useEffect, useState } from 'react'
-import { chooseProfile, currentProfile, fetchProfiles, fetchSyncStatus, startSync, type ProfileSummary } from './api'
+import {
+  chooseProfile,
+  currentProfile,
+  fetchProfiles,
+  fetchSyncStatus,
+  fetchVersion,
+  startSync,
+  type ProfileSummary,
+} from './api'
 import { SetupWizard } from './components/Setup'
 import { TodayPage } from './pages/Today'
 
@@ -90,6 +98,41 @@ function SyncButton() {
         {running ? 'Syncing' : 'Sync'}
       </button>
     </div>
+  )
+}
+
+function VersionButton() {
+  const [open, setOpen] = useState(false)
+  const version = useQuery({ queryKey: ['version'], queryFn: fetchVersion, enabled: open })
+  const data = version.data
+  const committed = data?.committed_at
+    ? new Date(data.committed_at).toLocaleString('en-GB', { dateStyle: 'medium', timeStyle: 'short' })
+    : null
+
+  return (
+    <details className="relative" onToggle={(event) => setOpen(event.currentTarget.open)}>
+      <summary
+        aria-label="Which version is running"
+        title="Which version is running"
+        className="flex h-8 w-8 cursor-pointer list-none items-center justify-center rounded-full border border-line text-sm text-secondary hover:bg-raised [&::-webkit-details-marker]:hidden"
+      >
+        ?
+      </summary>
+      <div className="absolute right-0 z-10 mt-2 w-64 rounded-xl border border-line bg-surface p-3 text-xs text-secondary shadow-lg">
+        {version.isPending && 'Loading…'}
+        {version.error && <span className="text-critical">{version.error.message}</span>}
+        {data && !data.commit && 'The server is not running from a git checkout.'}
+        {data?.commit && (
+          <>
+            <p>
+              Running <code className="font-semibold text-primary">{data.commit}</code>
+              {committed && `, committed ${committed}`}
+            </p>
+            {data.subject && <p className="mt-1 text-muted">{data.subject}</p>}
+          </>
+        )}
+      </div>
+    </details>
   )
 }
 
@@ -203,6 +246,7 @@ export default function App() {
         </nav>
         <div className="flex shrink-0 items-center gap-2">
           <SyncButton key={active.slug} />
+          <VersionButton />
           {list.length > 1 && (
             <button
               type="button"

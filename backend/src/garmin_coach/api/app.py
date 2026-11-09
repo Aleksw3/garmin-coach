@@ -19,6 +19,7 @@ from garmin_coach.evidence.fetch import EvidenceFetcher
 from garmin_coach.garmin.connect import GarminWebLogin
 from garmin_coach.household import Household
 from garmin_coach.jobs import DEFAULT_SCHEDULE, Schedule, ScheduledProfile, start_scheduler
+from garmin_coach.version import Version, running_version
 
 
 def create_app(
@@ -73,6 +74,12 @@ def create_app(
     @app.get("/health")
     def health() -> dict[str, str]:
         return {"status": "ok"}
+
+    version = running_version()
+
+    @app.get("/api/version")
+    def get_version() -> Version:
+        return version
 
     if frontend_dir is not None and frontend_dir.is_dir():
         app.mount("/", StaticFiles(directory=frontend_dir, html=True), name="frontend")

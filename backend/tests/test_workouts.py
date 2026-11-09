@@ -6,8 +6,10 @@ from fastapi.testclient import TestClient
 from sqlalchemy.orm import Session, sessionmaker
 
 from garmin_coach.coach.agent import Coach, coach_settings
+from garmin_coach.coach.notify import Notifier
 from garmin_coach.coach.plan import ProposalBody
 from garmin_coach.config import Settings
+from garmin_coach.garmin.nightly import TomorrowOnWatch
 from garmin_coach.garmin.workouts import WorkoutError, workout_payload
 from garmin_coach.metrics.zones import hr_zones
 from garmin_coach.models import Plan, PlannedSession, PlanProposal
@@ -265,3 +267,60 @@ def test_accepted_proposals_update_sessions_on_the_watch(
     assert ("schedule_workout", (new_hills_id, date(2026, 11, 12))) in garmin.calls
     with sessions() as session:
         assert session.get_one(PlannedSession, 2).garmin_workout_id == new_hills_id
+
+
+class Recording(Notifier):
+    def __init__(self) -> None:
+        super().__init__("https://ntfy.sh", "topic")
+        self.sent: list[tuple[str, str]] = []
+
+    def send(self, title: str, message: str, page: str = "#chat") -> bool:
+        self.sent.append((title, message))
+        return True
+
+
+def nightly(
+    sessions: sessionmaker[Session], garmin: FakeGarmin, today: date
+) -> tuple[TomorrowOnWatch, Recording]:
+    notifier = Recording()
+    return TomorrowOnWatch(sessions, lambda: garmin, notifier, lambda: today, lambda: NOW), notifier
+
+
+def test_the_night_before_sends_sessions_not_yet_on_the_watch(
+    client: TestClient, garmin: FakeGarmin, sessions: sessionmaker[Session]
+) -> None:
+    with sessions() as session:
+        session.add(hills_session(plan_id=1, day=date(2026, 11, 10), title="Easy hills"))
+        session.add(hills_session(plan_id=1, day=date(2026, 11, 10), title="Skipped", skipped=True))
+        session.commit()
+    client.post("/api/sessions/1/watch")
+    uploads = garmin.count("upload_workout")
+
+    job, notifier = nightly(sessions, garmin, date(2026, 11, 9))
+    assert job.send() == ["Easy hills"]
+    assert garmin.count("upload_workout") == uploads + 1
+    assert notifier.sent[0][0] == "Tomorrow's training is on the watch"
+    assert notifier.sent[0][1].startswith("Easy hills is in the Garmin calendar")
+
+    assert job.send() == []
+    rest_day, _ = nightly(sessions, garmin, date(2026, 11, 12))
+    assert rest_day.send() == []
+    assert len(notifier.sent) == 1
+
+
+def test_the_night_before_reports_when_garmin_fails(
+    client: TestClient, garmin: FakeGarmin, sessions: sessionmaker[Session]
+) -> None:
+    garmin.failing.add(("upload_workout", ("Hill repeats",)))
+    job, notifier = nightly(sessions, garmin, date(2026, 11, 10))
+
+    assert job.send() == []
+    assert notifier.sent == [
+        (
+            "Tomorrow's session is not on the watch",
+            "Garmin did not take Hill repeats: 500. Open it on the Plan page and press Send to "
+            "watch.",
+        )
+    ]
+    with sessions() as session:
+        assert session.get_one(PlannedSession, 2).garmin_workout_id is None

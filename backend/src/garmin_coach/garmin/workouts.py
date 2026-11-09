@@ -28,6 +28,7 @@ from garmin_coach.metrics.zones import Zone
 from garmin_coach.models import PlannedSession
 
 RUNNING_SPORTS = ("run", "vertical")
+ENDURANCE_SPORTS = (*RUNNING_SPORTS, "cycling")
 STRENGTH_WARMUP_MIN = 10
 UNKNOWN_CATEGORY = "TOTAL_BODY"
 NOTE_LENGTH = 250
@@ -280,18 +281,22 @@ def strength_steps(row: PlannedSession, order: Iterator[int]) -> list[WorkoutSte
     return steps
 
 
+def fits_on_watch(row: PlannedSession) -> bool:
+    return bool(row.exercises) or row.sport in ENDURANCE_SPORTS
+
+
 def workout_payload(row: PlannedSession, zones: list[Zone] | None) -> dict[str, Any]:
     order = count(1)
     workout_type: type[BaseWorkout]
     steps: list[WorkoutStep]
+    if not fits_on_watch(row):
+        raise WorkoutError(f"Garmin has no workouts for {row.sport} sessions without exercises")
     if row.exercises:
         workout_type = StrengthWorkout
         steps = strength_steps(row, order)
-    elif row.sport in RUNNING_SPORTS or row.sport == "cycling":
+    else:
         workout_type = CyclingWorkout if row.sport == "cycling" else RunningWorkout
         steps = endurance_steps(row, zones, order)
-    else:
-        raise WorkoutError(f"Garmin has no workouts for {row.sport} sessions without exercises")
     description = (row.description or "")[:DESCRIPTION_LENGTH] or None
     workout = workout_type(
         workoutName=row.title,

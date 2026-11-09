@@ -393,6 +393,7 @@ class NotificationsOut(BaseModel):
     topic: str | None
     checkin_time: str | None
     review: str | None
+    watch_time: str | None
 
 
 @router.get("/coach/latest", response_model=LatestCoachMessageOut | None)
@@ -433,6 +434,7 @@ def notifications_out(request: Request, profile: ProfileRuntime) -> Notification
         topic=notifier.topic,
         checkin_time=schedule.checkin_time if schedule and coached else None,
         review=f"{schedule.review_day} {schedule.review_time}" if schedule and coached else None,
+        watch_time=schedule.watch_time if schedule else None,
     )
 
 

@@ -11,10 +11,11 @@ from sqlalchemy.orm import Session, sessionmaker
 from garmin_coach.api.app import create_app
 from garmin_coach.api.profile import ProfileRuntime, make_profile
 from garmin_coach.coach.agent import Coach, coach_settings
-from garmin_coach.coach.notify import Notifier, ProfileNotifier
+from garmin_coach.coach.notify import NO_NOTIFIER, Notifier, ProfileNotifier
 from garmin_coach.coach.usage import Spending, record_usage
 from garmin_coach.config import Settings
 from garmin_coach.evidence.library import index_entry, search
+from garmin_coach.garmin.nightly import TomorrowOnWatch
 from garmin_coach.jobs import ScheduledProfile, SyncRunner, start_scheduler
 from garmin_coach.models import ApiUsage, AthleteProfile, Evidence, EvidenceTopic
 from garmin_coach.profiles import (
@@ -147,12 +148,17 @@ def test_scheduler_has_jobs_per_profile(tmp_path: Path) -> None:
     def runner() -> SyncRunner:
         return SyncRunner(lambda: None)  # type: ignore[arg-type,return-value]
 
-    scheduler = start_scheduler([ScheduledProfile("a", runner()), ScheduledProfile("b", runner())])
+    watch = TomorrowOnWatch(None, None, NO_NOTIFIER)  # type: ignore[arg-type]
+    scheduler = start_scheduler(
+        [ScheduledProfile("a", runner()), ScheduledProfile("b", runner(), watch=watch)]
+    )
     try:
         jobs = {job.id: job for job in scheduler.get_jobs()}
-        assert set(jobs) == {"recent_sync_a", "recent_sync_b"}
+        assert set(jobs) == {"recent_sync_a", "recent_sync_b", "tomorrow_on_watch_b"}
         fields = {field.name: str(field) for field in jobs["recent_sync_b"].trigger.fields}
         assert fields["minute"] == "15"
+        fields = {field.name: str(field) for field in jobs["tomorrow_on_watch_b"].trigger.fields}
+        assert (fields["hour"], fields["minute"]) == ("20", "0")
     finally:
         scheduler.shutdown(wait=False)
 

@@ -185,6 +185,12 @@ function NotificationsCard() {
           <dd className="text-primary">{data.review ?? 'off, no API key'}</dd>
           <dt className="text-muted">Activity feedback</dt>
           <dd className="text-primary">after each sync with a new activity</dd>
+          {data.watch_time && (
+            <>
+              <dt className="text-muted">Watch workouts</dt>
+              <dd className="text-primary">{data.watch_time}, tomorrow's sessions sent to Garmin</dd>
+            </>
+          )}
         </dl>
       ) : (
         <p className="mb-3 text-sm text-secondary">

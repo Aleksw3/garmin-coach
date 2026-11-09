@@ -8,6 +8,7 @@ from apscheduler.schedulers.background import BackgroundScheduler
 
 from garmin_coach.coach.proactive import ProactiveCoach
 from garmin_coach.evidence.fetch import EvidenceFetcher
+from garmin_coach.garmin.nightly import TomorrowOnWatch
 from garmin_coach.garmin.source import GarminAuthError, GarminError
 from garmin_coach.sync import SyncService
 
@@ -92,6 +93,7 @@ class Schedule:
     review_time: str = "19:00"
     evidence_day: str = "mon"
     evidence_time: str = "07:00"
+    watch_time: str = "20:00"
 
 
 DEFAULT_SCHEDULE = Schedule()
@@ -107,6 +109,7 @@ class ScheduledProfile:
     slug: str
     runner: SyncRunner
     proactive: ProactiveCoach | None = None
+    watch: TomorrowOnWatch | None = None
 
 
 def schedule_profile(
@@ -122,6 +125,15 @@ def schedule_profile(
         minute=(SYNC_MINUTE + index * SYNC_SPACING_MIN) % 60,
         id=f"recent_sync_{profile.slug}",
     )
+    if profile.watch is not None:
+        hour, minute = hour_minute(schedule.watch_time)
+        scheduler.add_job(
+            profile.watch.send,
+            "cron",
+            hour=hour,
+            minute=minute,
+            id=f"tomorrow_on_watch_{profile.slug}",
+        )
     if profile.proactive is None:
         return
     hour, minute = hour_minute(schedule.checkin_time)

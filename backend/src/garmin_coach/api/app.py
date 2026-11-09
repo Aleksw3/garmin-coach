@@ -36,7 +36,7 @@ def create_app(
         scheduler = (
             start_scheduler(
                 [
-                    ScheduledProfile(p.slug, p.runner, p.proactive)
+                    ScheduledProfile(p.slug, p.runner, p.proactive, p.watch)
                     for p in app.state.profiles.values()
                 ],
                 schedule,

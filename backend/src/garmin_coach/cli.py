@@ -274,6 +274,7 @@ def command_serve(args: argparse.Namespace) -> None:
             settings.review_time,
             settings.evidence_day,
             settings.evidence_time,
+            settings.watch_time,
         ),
         household=household,
     )

@@ -9,6 +9,7 @@ from garmin_coach.coach.agent import Coach
 from garmin_coach.coach.notify import NO_NOTIFIER, Sender
 from garmin_coach.coach.proactive import ProactiveCoach
 from garmin_coach.garmin.connect import PendingLogin
+from garmin_coach.garmin.nightly import TomorrowOnWatch
 from garmin_coach.garmin.source import GarminSource
 from garmin_coach.jobs import SyncRunner
 from garmin_coach.sync import SyncService
@@ -24,6 +25,7 @@ class ProfileRuntime:
     runner: SyncRunner
     notifier: Sender
     proactive: ProactiveCoach | None = None
+    watch: TomorrowOnWatch | None = None
     pending_login: PendingLogin | None = None
 
     def garmin(self) -> GarminSource:
@@ -47,7 +49,8 @@ def make_profile(
             "#settings",
         ),
     )
-    return ProfileRuntime(slug, sessions, coach, runner, notifier, proactive)
+    watch = TomorrowOnWatch(sessions, lambda: runner.make_service().source, notifier)
+    return ProfileRuntime(slug, sessions, coach, runner, notifier, proactive, watch)
 
 
 def current_profile(request: Request) -> ProfileRuntime:

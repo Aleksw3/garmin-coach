@@ -446,6 +446,7 @@ export type Notifications = {
   topic: string | null
   checkin_time: string | null
   review: string | null
+  watch_time: string | null
 }
 
 export const fetchLatestCoach = () => request<LatestCoachMessage | null>('/api/coach/latest')

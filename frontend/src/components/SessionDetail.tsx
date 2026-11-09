@@ -17,6 +17,7 @@ import { sessionStatus } from '../sessions'
 import { groupColor, groupLabel, useTheme } from '../theme'
 
 const DEFAULT_HILL_GRADE = 8
+const STRENGTH_WARMUP_MIN = 10
 const WATCH_SPORTS: PlannedSession['sport'][] = ['run', 'vertical', 'cycling']
 
 function fitsOnWatch(session: PlannedSession): boolean {
@@ -161,6 +162,11 @@ function ExerciseRow({ exercise, index }: { exercise: Exercise; index: number })
       <span className="tabular pt-0.5 text-xs text-muted">{index + 1}</span>
       <div className="min-w-0">
         <p className="text-sm font-semibold text-primary">{exercise.name}</p>
+        {exercise.warmup_sets && exercise.warmup_sets.length > 0 && (
+          <p className="mt-0.5 text-xs text-secondary">
+            Warm-up sets: {exercise.warmup_sets.map((set) => `${set.weight_kg} kg × ${set.reps}`).join(', ')}
+          </p>
+        )}
         {exercise.note && <p className="mt-0.5 text-xs text-muted">{exercise.note}</p>}
       </div>
       <div className="tabular text-right">
@@ -290,6 +296,9 @@ export function SessionDialog({
         {session.exercises.length > 0 && (
           <Section title="Exercises">
             <ol className="divide-y divide-[var(--border)]">
+              {session.kind !== 'mobility' && (
+                <li className="py-2.5 text-sm text-secondary">Start with {STRENGTH_WARMUP_MIN} min easy warm-up</li>
+              )}
               {session.exercises.map((exercise, index) => (
                 <ExerciseRow key={index} exercise={exercise} index={index} />
               ))}

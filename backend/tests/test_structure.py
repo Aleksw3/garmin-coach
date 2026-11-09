@@ -93,7 +93,13 @@ def test_structurer_fills_old_sessions(session: Session) -> None:
     SessionStructurer(fake_create, "claude-haiku-5-5").apply(session, row)
 
     assert row.steps == []
-    assert row.exercises[0] == {"name": "Back squat", "sets": 3, "reps": "8", "load": "60 kg"}
+    assert row.exercises[0] == {
+        "name": "Back squat",
+        "sets": 3,
+        "reps": "8",
+        "load": "60 kg",
+        "warmup_sets": [],
+    }
     assert row.description == "Keep it light."
     assert session_structure(row) == (
         "exercises: Back squat 3x8 @ 60 kg; Copenhagen plank 2x20 s/side"

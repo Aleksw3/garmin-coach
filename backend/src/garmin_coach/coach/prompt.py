@@ -74,6 +74,9 @@ zone on each. Strength and mobility sessions get exercises with sets, reps, load
 Name each exercise with its exact Garmin name from find_garmin_exercises, because the athlete \
 can send sessions to the watch. Write reps as a number, for example 8 or 8/leg, or a time such \
 as 30 s/side, and load in kg or bodyweight. \
+Give heavy barbell lifts such as back squat and Romanian deadlift warmup_sets that ramp up \
+to the working load, for example the empty 20 kg bar and then about 70%. Other exercises get \
+none. The watch adds a 10 minute warm-up at the start of each strength session. \
 Keep the description for what the steps and exercises don't cover, such as terrain, \
 fueling or how the session should feel, in one to three short sentences.
 - For hill repeats, give the interval step a gradient in grade_pct. The Plan page then shows \

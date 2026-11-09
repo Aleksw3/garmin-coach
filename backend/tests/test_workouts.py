@@ -26,6 +26,14 @@ STRENGTH: dict[str, Any] = dict(
     duration_min=45,
     exercises=[
         {
+            "name": "Back Squat",
+            "sets": 3,
+            "reps": "5",
+            "load": "70 kg",
+            "rest_s": 150,
+            "warmup_sets": [{"reps": 8, "weight_kg": 20}, {"reps": 5, "weight_kg": 50}],
+        },
+        {
             "name": "Dumbbell Bulgarian Split Squats",
             "sets": 3,
             "reps": "8/leg",
@@ -81,28 +89,43 @@ def orders(nodes: list[dict[str, Any]]) -> list[int]:
 
 def test_strength_session_becomes_a_strength_workout() -> None:
     payload = workout_payload(strength_session(), ZONES)
-    blocks = steps(payload)
+    warmup, bar, bar_rest, ramp, _, squat, split_squat, nordic, plank = steps(payload)
 
     assert payload["sportType"]["sportTypeKey"] == "strength_training"
     assert payload["estimatedDurationInSecs"] == 2700
-    assert [block["numberOfIterations"] for block in blocks] == [3, 3, 2]
-    assert sorted(orders(blocks)) == list(range(1, 10))
+    assert sorted(orders(steps(payload))) == list(range(1, 18))
 
-    split_squat, rest = blocks[0]["workoutSteps"]
-    assert split_squat["category"] == "LUNGE"
-    assert split_squat["exerciseName"] == "DUMBBELL_BULGARIAN_SPLIT_SQUAT"
-    assert split_squat["endCondition"]["conditionTypeKey"] == "reps"
-    assert split_squat["endConditionValue"] == 8
-    assert split_squat["weightValue"] == 12000
-    assert split_squat["description"] == "per leg"
+    assert warmup["stepType"]["stepTypeKey"] == "warmup"
+    assert warmup["endConditionValue"] == 600
+    assert "category" not in warmup
+
+    assert (bar["exerciseName"], bar["endConditionValue"], bar["weightValue"]) == (
+        "BACK_SQUATS",
+        8,
+        20000,
+    )
+    assert bar["description"] == "Warm-up set"
+    assert bar_rest["endCondition"]["conditionTypeKey"] == "lap.button"
+    assert ramp["weightValue"] == 50000
+    assert squat["numberOfIterations"] == 3
+    assert squat["workoutSteps"][0]["weightValue"] == 70000
+
+    assert [block["numberOfIterations"] for block in (split_squat, nordic, plank)] == [3, 3, 2]
+    work, rest = split_squat["workoutSteps"]
+    assert work["category"] == "LUNGE"
+    assert work["exerciseName"] == "DUMBBELL_BULGARIAN_SPLIT_SQUAT"
+    assert work["endCondition"]["conditionTypeKey"] == "reps"
+    assert work["endConditionValue"] == 8
+    assert work["weightValue"] == 12000
+    assert work["description"] == "per leg"
     assert rest["endConditionValue"] == 90
 
-    nordic, lap_rest = blocks[1]["workoutSteps"]
+    nordic, lap_rest = nordic["workoutSteps"]
     assert nordic["category"] == "TOTAL_BODY"
     assert nordic["description"] == "Nordic hamstring curl. Slow on the way down"
     assert lap_rest["endCondition"]["conditionTypeKey"] == "lap.button"
 
-    plank = blocks[2]["workoutSteps"][0]
+    plank = plank["workoutSteps"][0]
     assert plank["category"] == "PLANK"
     assert plank["endCondition"]["conditionTypeKey"] == "time"
     assert plank["endConditionValue"] == 30
@@ -123,6 +146,12 @@ def test_run_steps_get_heart_rate_ranges_from_the_athletes_zones() -> None:
     assert recovery["stepType"]["stepTypeKey"] == "recovery"
     assert recovery["endConditionValue"] == 120
     assert cooldown["stepType"]["stepTypeKey"] == "cooldown"
+
+
+def test_mobility_sessions_get_no_warmup_step() -> None:
+    mobility = strength_session(kind="mobility")
+    first = steps(workout_payload(mobility, None))[0]
+    assert first["stepType"]["stepTypeKey"] == "interval"
 
 
 def test_run_without_steps_is_one_step_and_rest_days_are_refused() -> None:

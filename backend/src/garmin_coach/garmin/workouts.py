@@ -28,6 +28,7 @@ from garmin_coach.metrics.zones import Zone
 from garmin_coach.models import PlannedSession
 
 RUNNING_SPORTS = ("run", "vertical")
+STRENGTH_WARMUP_MIN = 10
 UNKNOWN_CATEGORY = "TOTAL_BODY"
 NOTE_LENGTH = 250
 DESCRIPTION_LENGTH = 1000
@@ -231,23 +232,52 @@ def weight_kg(load: str | None) -> tuple[float | None, str | None]:
     return None, load
 
 
-def exercise_block(exercise: Exercise, order: Iterator[int]) -> RepeatGroup:
-    group_order = next(order)
+def weight_fields(weight: float | None) -> dict[str, Any]:
+    if weight is None:
+        return {}
+    return {"weightValue": weight * 1000, "weightUnit": dict(WEIGHT_UNIT_KILOGRAM)}
+
+
+def exercise_steps(exercise: Exercise, order: Iterator[int]) -> list[WorkoutStep]:
     match = garmin_exercise(exercise.name)
-    end, reps_note = reps_end(exercise.reps)
-    weight, load_note = weight_kg(exercise.load)
-    extra: dict[str, Any] = {
+    movement: dict[str, Any] = {
         "category": match["category"] if match else UNKNOWN_CATEGORY,
         "exerciseName": match["exercise"] if match else "",
     }
-    if weight is not None:
-        extra |= {"weightValue": weight * 1000, "weightUnit": dict(WEIGHT_UNIT_KILOGRAM)}
-    description = note(None if match else exercise.name, reps_note, load_note, exercise.note)
-    work = executable(order, "interval", end, description, **extra)
+    name = None if match else exercise.name
+    steps: list[WorkoutStep] = []
+    for warmup in exercise.warmup_sets:
+        description = note(name, "Warm-up set")
+        steps.append(
+            executable(
+                order,
+                "interval",
+                End("reps", warmup.reps),
+                description,
+                **movement,
+                **weight_fields(warmup.weight_kg or None),
+            )
+        )
+        steps.append(executable(order, "rest", LAP_BUTTON))
+    group_order = next(order)
+    end, reps_note = reps_end(exercise.reps)
+    weight, load_note = weight_kg(exercise.load)
+    description = note(name, reps_note, load_note, exercise.note)
+    work = executable(order, "interval", end, description, **movement, **weight_fields(weight))
     rest = executable(
         order, "rest", End("time", exercise.rest_s) if exercise.rest_s else LAP_BUTTON
     )
-    return create_repeat_group(exercise.sets, [work, rest], group_order)
+    steps.append(create_repeat_group(exercise.sets, [work, rest], group_order))
+    return steps
+
+
+def strength_steps(row: PlannedSession, order: Iterator[int]) -> list[WorkoutStep]:
+    steps: list[WorkoutStep] = []
+    if row.kind != "mobility":
+        steps.append(executable(order, "warmup", End("time", STRENGTH_WARMUP_MIN * 60)))
+    for exercise in row.exercises:
+        steps += exercise_steps(Exercise.model_validate(exercise), order)
+    return steps
 
 
 def workout_payload(row: PlannedSession, zones: list[Zone] | None) -> dict[str, Any]:
@@ -256,7 +286,7 @@ def workout_payload(row: PlannedSession, zones: list[Zone] | None) -> dict[str, 
     steps: list[WorkoutStep]
     if row.exercises:
         workout_type = StrengthWorkout
-        steps = [exercise_block(Exercise.model_validate(e), order) for e in row.exercises]
+        steps = strength_steps(row, order)
     elif row.sport in RUNNING_SPORTS or row.sport == "cycling":
         workout_type = CyclingWorkout if row.sport == "cycling" else RunningWorkout
         steps = endurance_steps(row, zones, order)

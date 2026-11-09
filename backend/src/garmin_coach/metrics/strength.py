@@ -10,6 +10,7 @@ from garmin_coach.models import Activity, StrengthSet, StrengthSetOverride
 PRIMARY_SET_SHARE = 1.0
 SECONDARY_SET_SHARE = 0.5
 EPLEY_MAX_REPS = 12
+WARMUP_SHARE_OF_HEAVIEST = 0.75
 
 MUSCLES_BY_CATEGORY: dict[str, tuple[tuple[str, ...], tuple[str, ...]]] = {
     "SQUAT": (("quads", "glutes"), ("hamstrings",)),
@@ -64,6 +65,22 @@ class EffectiveSet:
     name: str | None
     reps: int | None
     weight_kg: float | None
+    warmup: bool = False
+
+    @property
+    def exercise(self) -> tuple[int, str | None]:
+        return self.activity_id, self.name or self.category
+
+
+def mark_warmups(sets: list[EffectiveSet]) -> None:
+    heaviest: dict[tuple[int, str | None], float] = defaultdict(float)
+    for strength_set in sets:
+        heaviest[strength_set.exercise] = max(
+            heaviest[strength_set.exercise], strength_set.weight_kg or 0
+        )
+    for strength_set in sets:
+        limit = heaviest[strength_set.exercise] * WARMUP_SHARE_OF_HEAVIEST
+        strength_set.warmup = bool(strength_set.weight_kg) and (strength_set.weight_kg or 0) < limit
 
 
 def effective_sets(session: Session, first: date, last: date) -> list[EffectiveSet]:
@@ -97,11 +114,16 @@ def effective_sets(session: Session, first: date, last: date) -> list[EffectiveS
                 weight_kg=source.weight_kg,
             )
         )
+    mark_warmups(sets)
     return sets
 
 
 def is_hard_set(strength_set: EffectiveSet) -> bool:
-    return bool(strength_set.reps) and strength_set.category in MUSCLES_BY_CATEGORY
+    return (
+        bool(strength_set.reps)
+        and not strength_set.warmup
+        and strength_set.category in MUSCLES_BY_CATEGORY
+    )
 
 
 def sets_per_muscle(sets: list[EffectiveSet]) -> dict[str, float]:

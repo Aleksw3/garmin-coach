@@ -43,6 +43,13 @@ class Step(BaseModel):
     note: str | None = Field(default=None, max_length=300)
 
 
+class WarmupSet(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    reps: int = Field(ge=1, le=30)
+    weight_kg: float = Field(ge=0, le=500)
+
+
 class Exercise(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
@@ -53,6 +60,11 @@ class Exercise(BaseModel):
         default=None, max_length=60, description="For example 60 kg, bodyweight or 2x10 kg"
     )
     rest_s: int | None = Field(default=None, ge=0, le=600, description="Rest between sets")
+    warmup_sets: list[WarmupSet] = Field(
+        default=[],
+        max_length=4,
+        description="Lighter sets that ramp up to the working load, before the working sets",
+    )
     note: str | None = Field(default=None, max_length=200)
 
 
@@ -287,6 +299,9 @@ def exercise_text(exercise: Exercise) -> str:
         text += f" @ {exercise.load}"
     if exercise.rest_s:
         text += f", rest {exercise.rest_s} s"
+    if exercise.warmup_sets:
+        ramp = ", ".join(f"{w.weight_kg:g} kg x{w.reps}" for w in exercise.warmup_sets)
+        text += f", warm-up sets {ramp}"
     if exercise.note:
         text += f" ({exercise.note})"
     return text

@@ -16,6 +16,7 @@ from garmin_coach.metrics.strength import (
     effective_sets,
     epley_one_rep_max,
     is_single_leg_or_eccentric,
+    mark_warmups,
     sets_per_muscle,
 )
 from garmin_coach.models import Activity, StrengthSetOverride
@@ -25,8 +26,10 @@ from tests.garmin_data import activity_summary, exercise_sets
 MONDAY = date(2026, 10, 19)
 
 
-def strength_set(category: str, name: str | None = None, reps: int = 5) -> EffectiveSet:
-    return EffectiveSet(MONDAY, 1, 0, category, name, reps, 100.0)
+def strength_set(
+    category: str, name: str | None = None, reps: int = 5, weight_kg: float = 100.0
+) -> EffectiveSet:
+    return EffectiveSet(MONDAY, 1, 0, category, name, reps, weight_kg)
 
 
 def test_banister_trimp_matches_formula() -> None:
@@ -108,6 +111,21 @@ def test_sets_per_muscle_counts_secondary_muscles_as_half() -> None:
     assert totals["hamstrings"] == 2
     assert totals["lower_back"] == 0.5
     assert "cardio" not in totals
+
+
+def test_light_ramp_up_sets_are_not_hard_sets() -> None:
+    sets = [
+        strength_set("SQUAT", "BACK_SQUAT", reps=8, weight_kg=20),
+        strength_set("SQUAT", "BACK_SQUAT", reps=5, weight_kg=50),
+        strength_set("SQUAT", "BACK_SQUAT", weight_kg=70),
+        strength_set("SQUAT", "BACK_SQUAT", weight_kg=70),
+        strength_set("SQUAT", "GOBLET_SQUAT", weight_kg=24),
+    ]
+
+    mark_warmups(sets)
+
+    assert [s.warmup for s in sets] == [True, True, False, False, False]
+    assert sets_per_muscle(sets)["quads"] == 3
 
 
 def test_epley_one_rep_max() -> None:

@@ -299,6 +299,7 @@ export type Exercise = {
   reps: string
   load?: string | null
   rest_s?: number | null
+  warmup_sets?: { reps: number; weight_kg: number }[]
   note?: string | null
 }
 

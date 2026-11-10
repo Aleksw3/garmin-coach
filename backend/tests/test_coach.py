@@ -19,7 +19,14 @@ from garmin_coach.coach.proactive import ProactiveCoach
 from garmin_coach.coach.tools import ToolContext, run_tool, tool_definitions
 from garmin_coach.coach.usage import cost_usd
 from garmin_coach.config import Settings
-from garmin_coach.models import ApiUsage, CoachNote, Conversation, Goal, Message
+from garmin_coach.models import (
+    ActivityFeedback,
+    ApiUsage,
+    CoachNote,
+    Conversation,
+    Goal,
+    Message,
+)
 from garmin_coach.normalize import rebuild_all
 from garmin_coach.sync import SyncService
 from tests.apps import single_app
@@ -581,3 +588,50 @@ def test_feedback_stops_after_three_failed_attempts(seeded: sessionmaker[Session
 
     coach.settings = replace(SETTINGS, monthly_budget_usd=5.0)
     assert proactive.activity_feedback() == []
+
+
+def test_checkin_waits_for_last_nights_sleep(seeded: sessionmaker[Session]) -> None:
+    claude = FakeClaude([text_reply("Slept well. Run as planned."), text_reply("No sleep data.")])
+    tomorrow = NOW + timedelta(days=1)
+    clock = {"now": tomorrow}
+    coach = Coach(seeded, claude, SETTINGS, now=lambda: clock["now"])
+    proactive = ProactiveCoach(
+        seeded, coach, Notifier("https://ntfy.sh", None), now=lambda: clock["now"]
+    )
+
+    proactive.expect_checkin()
+    proactive.after_sync()
+    assert [r for r in claude.requests if "morning check-in" in json.dumps(r["messages"])] == []
+
+    with seeded() as session:
+        raw_store.put_daily(session, tomorrow.date(), "sleep", daily("sleep", tomorrow.date()))
+        rebuild_all(session)
+        session.commit()
+    proactive.after_sync()
+    checkins = [r for r in claude.requests if "morning check-in" in json.dumps(r["messages"])]
+    assert len(checkins) == 1
+    assert "has not uploaded last night" not in json.dumps(checkins[0]["messages"])
+    assert proactive.checkin_deadline() is None
+
+
+def test_checkin_goes_out_at_the_deadline_without_sleep_data(
+    seeded: sessionmaker[Session],
+) -> None:
+    claude = FakeClaude([text_reply("No sleep data yet. Keep it easy.")])
+    tomorrow = NOW + timedelta(days=1)
+    coach = Coach(seeded, claude, SETTINGS, now=lambda: tomorrow)
+    proactive = ProactiveCoach(
+        seeded, coach, Notifier("https://ntfy.sh", None), now=lambda: tomorrow
+    )
+    with seeded() as session:
+        session.add_all(
+            ActivityFeedback(activity_id=activity_id, created_at=NOW) for activity_id in (1, 2)
+        )
+        session.commit()
+
+    proactive.expect_checkin()
+    proactive.after_sync()
+    assert claude.requests == []
+
+    assert proactive.checkin_deadline() == "No sleep data yet. Keep it easy."
+    assert "has not uploaded last night" in json.dumps(claude.requests[0]["messages"])

@@ -184,7 +184,7 @@ Prompt and caching:
 
 Proactive messages:
 
-- A morning check-in at a set time: readiness, today's planned session and an adjustment if recovery data says so.
+- A morning check-in at a set time: readiness, today's planned session and an adjustment if recovery data says so. The job syncs first. If last night's sleep is not there yet, the check-in goes out after the first sync that brings it, or after 2 hours with a note that the night is missing.
 - Feedback after each synced activity: compared with the plan and with similar past sessions.
 - A Sunday weekly review: plan compliance, load trend and a proposal for next week.
 - Each one becomes a message in a "Coach" thread and an ntfy notification.

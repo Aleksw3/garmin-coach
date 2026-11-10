@@ -42,7 +42,7 @@ def make_profile(
 ) -> ProfileRuntime:
     runner = SyncRunner(
         make_sync_service,
-        on_synced=proactive.activity_feedback if proactive else None,
+        on_synced=proactive.after_sync if proactive else None,
         on_auth_failed=lambda error: notifier.send(
             "Garmin login failed",
             f"The sync could not log in to Garmin: {error}. Log in again on the Settings page.",

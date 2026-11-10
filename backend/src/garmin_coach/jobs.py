@@ -17,6 +17,7 @@ log = logging.getLogger(__name__)
 SYNC_HOURS = "5-23"
 SYNC_MINUTE = 5
 SYNC_SPACING_MIN = 10
+CHECKIN_WAIT_HOURS = 2
 
 
 @dataclass(frozen=True)
@@ -113,6 +114,11 @@ class ScheduledProfile:
     watch: TomorrowOnWatch | None = None
 
 
+def sync_then_checkin(runner: SyncRunner, proactive: ProactiveCoach) -> None:
+    proactive.expect_checkin()
+    runner.run_recent()
+
+
 def schedule_profile(
     scheduler: BackgroundScheduler,
     profile: ScheduledProfile,
@@ -135,19 +141,27 @@ def schedule_profile(
             minute=minute,
             id=f"tomorrow_on_watch_{profile.slug}",
         )
-    if profile.proactive is None:
+    proactive = profile.proactive
+    if proactive is None:
         return
     hour, minute = hour_minute(schedule.checkin_time)
     scheduler.add_job(
-        profile.proactive.morning_checkin,
+        lambda: sync_then_checkin(profile.runner, proactive),
         "cron",
         hour=hour,
         minute=minute,
         id=f"morning_checkin_{profile.slug}",
     )
+    scheduler.add_job(
+        proactive.checkin_deadline,
+        "cron",
+        hour=(hour + CHECKIN_WAIT_HOURS) % 24,
+        minute=minute,
+        id=f"checkin_deadline_{profile.slug}",
+    )
     hour, minute = hour_minute(schedule.review_time)
     scheduler.add_job(
-        profile.proactive.weekly_review,
+        proactive.weekly_review,
         "cron",
         day_of_week=schedule.review_day,
         hour=hour,

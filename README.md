@@ -90,7 +90,7 @@ All settings are optional. Put them in `.env` at the repo root or in the environ
 | `CHAT_MODEL`, `CHAT_EFFORT` | `claude-sonnet-5-5`, `low` | the chat model |
 | `PLAN_MODEL`, `PLAN_EFFORT` | `claude-opus-5-5`, `high` | the model that builds training plans |
 | `BACKGROUND_MODEL` | `claude-haiku-5-5` | writes check-ins, activity feedback and paper summaries |
-| `CHECKIN_TIME` | `06:30` | the morning check-in |
+| `CHECKIN_TIME` | `06:30` | the morning check-in. It syncs first and waits up to 2 hours for the watch to upload last night |
 | `REVIEW_DAY`, `REVIEW_TIME` | `sun`, `19:00` | the weekly review |
 | `WATCH_TIME` | `20:00` | sends tomorrow's planned sessions to the Garmin calendar so the watch has them in the morning |
 | `FEEDBACK_WINDOW_HOURS` | 36 | how old a new activity can be and still get feedback |

@@ -2,14 +2,14 @@ import logging
 import threading
 from collections import Counter
 from collections.abc import Callable
-from datetime import datetime, timedelta
+from datetime import date, datetime, timedelta
 
 from sqlalchemy import select
 from sqlalchemy.orm import Session, sessionmaker
 
 from garmin_coach.coach.agent import Coach, CoachError
 from garmin_coach.coach.notify import Sender
-from garmin_coach.models import Activity, ActivityFeedback, Conversation
+from garmin_coach.models import Activity, ActivityFeedback, Conversation, DailyWellness
 from garmin_coach.reports import week_start
 
 log = logging.getLogger(__name__)
@@ -23,6 +23,11 @@ HR against the normal range, the recent load, and today's planned sessions. In a
 sentences, say how recovered I look and whether to do today's session as planned. If \
 recovery clearly calls for a change, propose it with propose_changes and say so. If nothing \
 is planned today, say what would fit."""
+
+NO_SLEEP_DATA_NOTE = (
+    " The watch has not uploaded last night yet, so the sleep, HRV and resting HR you can "
+    "read are from earlier nights. Say that, and judge from the load and the days before."
+)
 
 FEEDBACK_PROMPT = """\
 Scheduled feedback on activity {id} ({name}, {start:%A %d %B %H:%M}). Read it with \
@@ -52,6 +57,7 @@ class ProactiveCoach:
         self.notifier = notifier
         self.feedback_window = feedback_window
         self.now = now
+        self._checkin_due: date | None = None
         self._feedback_lock = threading.Lock()
         self._failed_attempts: Counter[int] = Counter()
 
@@ -101,14 +107,30 @@ class ProactiveCoach:
             self.notifier.send(title, answer)
         return answer
 
+    def _slept_last_night(self, day: date) -> bool:
+        with self.sessions() as session:
+            wellness = session.get(DailyWellness, day)
+            return wellness is not None and wellness.sleep_s is not None
+
+    def expect_checkin(self) -> None:
+        self._checkin_due = self.now().date()
+
+    def after_sync(self) -> None:
+        day = self.now().date()
+        if self._checkin_due == day and self._slept_last_night(day):
+            self.morning_checkin()
+        self.activity_feedback()
+
+    def checkin_deadline(self) -> str | None:
+        return self.morning_checkin() if self._checkin_due == self.now().date() else None
+
     def morning_checkin(self) -> str | None:
         day = self.now().date()
-        return self._run(
-            "checkin",
-            f"Morning check-in, {day:%d %b}",
-            CHECKIN_PROMPT.format(day=day),
-            "Morning check-in",
-        )
+        self._checkin_due = None
+        prompt = CHECKIN_PROMPT.format(day=day)
+        if not self._slept_last_night(day):
+            prompt += NO_SLEEP_DATA_NOTE
+        return self._run("checkin", f"Morning check-in, {day:%d %b}", prompt, "Morning check-in")
 
     def weekly_review(self) -> str | None:
         first = week_start(self.now().date())

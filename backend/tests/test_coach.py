@@ -16,10 +16,12 @@ from garmin_coach.api.coach_routes import chat_items
 from garmin_coach.coach.agent import SUMMARY_PROMPT, Coach, CoachError, coach_settings, title_from
 from garmin_coach.coach.notify import Notifier
 from garmin_coach.coach.proactive import ProactiveCoach
+from garmin_coach.coach.prompt import context_block
 from garmin_coach.coach.tools import ToolContext, run_tool, tool_definitions
 from garmin_coach.coach.usage import cost_usd
 from garmin_coach.config import Settings
 from garmin_coach.models import (
+    Activity,
     ActivityFeedback,
     ApiUsage,
     CoachNote,
@@ -635,3 +637,52 @@ def test_checkin_goes_out_at_the_deadline_without_sleep_data(
 
     assert proactive.checkin_deadline() == "No sleep data yet. Keep it easy."
     assert "has not uploaded last night" in json.dumps(claude.requests[0]["messages"])
+
+
+def race_goal(sessions: sessionmaker[Session], day: date) -> None:
+    with sessions() as session:
+        session.add(Goal(kind="race", title="Mountain race", target_date=day))
+        session.commit()
+
+
+@pytest.mark.parametrize(
+    ("days", "expected", "model"),
+    [
+        (10, "is in 10 days, so this is the taper", "claude-haiku-5-5"),
+        (3, "write the race brief", SETTINGS.choice("review").model),
+        (0, "the day of the race Mountain race", "claude-haiku-5-5"),
+    ],
+)
+def test_checkin_changes_as_the_race_gets_close(
+    seeded: sessionmaker[Session], days: int, expected: str, model: str
+) -> None:
+    race_goal(seeded, NOW.date() + timedelta(days=days))
+    claude = FakeClaude([text_reply("Ready.")])
+    proactive = ProactiveCoach(
+        seeded, make_coach(seeded, claude), Notifier("https://ntfy.sh", None), now=lambda: NOW
+    )
+    proactive.morning_checkin()
+    prompt = json.dumps(claude.requests[0]["messages"][-1])
+    assert expected in prompt
+    assert claude.requests[0]["model"] == model
+    with seeded() as session:
+        line = "Race day: Mountain race is today" if days == 0 else f"Mountain race in {days} days"
+        assert line in context_block(session, NOW)
+
+
+def test_activity_on_the_race_date_gets_a_race_review(seeded: sessionmaker[Session]) -> None:
+    with seeded() as session:
+        latest = session.scalars(
+            select(Activity).order_by(Activity.start_time_local.desc())
+        ).first()
+        assert latest is not None
+        race_day = latest.local_date
+    race_goal(seeded, race_day)
+    claude = FakeClaude([text_reply("Strong race.")])
+    proactive = ProactiveCoach(
+        seeded, make_coach(seeded, claude), Notifier("https://ntfy.sh", None), now=lambda: NOW
+    )
+    assert proactive.activity_feedback() == ["Strong race."]
+    prompt = json.dumps(claude.requests[0]["messages"][-1])
+    assert "Scheduled race review of activity" in prompt
+    assert "Race lesson, Mountain race" in prompt

@@ -9,6 +9,14 @@ from sqlalchemy.orm import Session, sessionmaker
 
 from garmin_coach.coach.agent import Coach, CoachError
 from garmin_coach.coach.notify import Button, Sender
+from garmin_coach.coach.race import (
+    MIN_RACE_ACTIVITY_S,
+    RACE_DAY_PROMPT,
+    RACE_REVIEW_PROMPT,
+    brief_due,
+    checkin_note,
+    race_on,
+)
 from garmin_coach.models import Activity, ActivityFeedback, Conversation, DailyWellness
 from garmin_coach.reports import week_start
 
@@ -142,10 +150,17 @@ class ProactiveCoach:
     def morning_checkin(self) -> str | None:
         day = self.now().date()
         self._checkin_due = None
-        prompt = CHECKIN_PROMPT.format(day=day)
+        with self.sessions() as session:
+            race_today = race_on(session, day)
+            race_note = checkin_note(session, day)
+            purpose = "review" if brief_due(session, day) else "checkin"
+        if race_today is not None:
+            prompt = RACE_DAY_PROMPT.format(day=day, title=race_today.title)
+        else:
+            prompt = CHECKIN_PROMPT.format(day=day) + race_note
         if not self._slept_last_night(day):
             prompt += NO_SLEEP_DATA_NOTE
-        return self._run("checkin", f"Morning check-in, {day:%d %b}", prompt, "Morning check-in")
+        return self._run(purpose, f"Morning check-in, {day:%d %b}", prompt, "Morning check-in")
 
     def weekly_review(self) -> str | None:
         first = week_start(self.now().date())
@@ -179,16 +194,33 @@ class ProactiveCoach:
                 and activity.id not in done
                 and self._failed_attempts[activity.id] < MAX_FEEDBACK_ATTEMPTS
             ][:MAX_FEEDBACK_PER_SYNC]
+            races = {
+                activity.id: race.title
+                for activity in activities
+                if (activity.duration_s or 0) >= MIN_RACE_ACTIVITY_S
+                and (race := race_on(session, activity.local_date)) is not None
+            }
         answers = []
         for activity in activities:
             name = activity.name or activity.type_key
-            answer = self._run(
-                "feedback",
-                f"Feedback on {name}",
-                FEEDBACK_PROMPT.format(id=activity.id, name=name, start=activity.start_time_local),
-                f"Feedback: {name}",
-                effort_buttons(activity.id),
-            )
+            fields = {"id": activity.id, "name": name, "start": activity.start_time_local}
+            race_title = races.get(activity.id)
+            if race_title is None:
+                answer = self._run(
+                    "feedback",
+                    f"Feedback on {name}",
+                    FEEDBACK_PROMPT.format(**fields),
+                    f"Feedback: {name}",
+                    effort_buttons(activity.id),
+                )
+            else:
+                answer = self._run(
+                    "review",
+                    f"Race review, {race_title}",
+                    RACE_REVIEW_PROMPT.format(**fields, title=race_title),
+                    f"Race review: {race_title}",
+                    effort_buttons(activity.id),
+                )
             if answer is None:
                 self._failed_attempts[activity.id] += 1
                 continue

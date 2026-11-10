@@ -190,6 +190,7 @@ Prompt and caching:
 Proactive messages:
 
 - A morning check-in at a set time: readiness, today's planned session and an adjustment if recovery data says so. The job syncs first. If last night's sleep is not there yet, the check-in goes out after the first sync that brings it, or after 2 hours with a note that the night is missing.
+- Race weeks: the context block names the next race and the days left. In the last 3 weeks the check-in judges each session as part of the taper. 3 days before the race it also writes a race brief with pacing, aid station times against the cutoffs and fueling, on the chat model. On race day it sends a short reminder of the plan. The activity on the race date gets a race review in place of the usual feedback, and the coach saves the lessons as notes.
 - Feedback after each synced activity: compared with the plan and with similar past sessions.
 - A Sunday weekly review: plan compliance, load trend and a proposal for next week.
 - Each one becomes a message in a "Coach" thread and an ntfy notification.

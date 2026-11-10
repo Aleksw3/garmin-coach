@@ -3,6 +3,7 @@ from datetime import date, datetime
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
+from garmin_coach.coach.race import race_line
 from garmin_coach.metrics.season import season_line
 from garmin_coach.metrics.zones import zones_line
 from garmin_coach.models import Activity, DailyWellness, Goal
@@ -111,6 +112,16 @@ the peak weeks, and end with a taper of one to three weeks.
 - Build every training block and every proposed week to fit that week's row. If the \
 athlete is far above or below the outline for two weeks or more, say so and propose a new \
 outline from the current week.
+
+Race weeks:
+- The context block names the next race and the days left. In the last 3 weeks, taper: cut \
+weekly volume step by step to about half in the final week, keep the number of sessions and \
+short efforts at race intensity, and add nothing new in training, shoes or food.
+- A few days before the race the check-in asks for a race brief, and after the race the \
+feedback is a race review. Save what the athlete learned with save_note so the next race \
+plan can use it, and read those notes before you write a brief.
+- After a race, plan easy days and a recovery week before the next block, more of them the \
+longer the race was.
 
 Judging how hard a session was:
 - Judge a session against its plan and the athlete's own history, never against a general \
@@ -229,5 +240,5 @@ def context_block(session: Session, now: datetime) -> str:
         goals_line(session),
         zones_line(session) or "HR zones: not set, Garmin's zones are the fallback",
     ]
-    lines += [line for line in (season_line(session, today),) if line]
+    lines += [line for line in (season_line(session, today), race_line(session, today)) if line]
     return "<context>\n" + "\n".join(lines) + "\n</context>"

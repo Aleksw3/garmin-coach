@@ -202,6 +202,22 @@ export type GoalInput = {
 
 export type Goal = GoalInput & { id: number }
 
+export type CourseSlope = { start_km: number; end_km: number; change_m: number; grade: number }
+
+export type CourseLeg = { name: string; start_km: number; end_km: number; gain_m: number; loss_m: number }
+
+export type Course = {
+  name: string | null
+  distance_km: number
+  gain_m: number
+  loss_m: number
+  profile: [number, number][]
+  waypoints: { name: string; km: number }[]
+  legs: CourseLeg[]
+  climbs: CourseSlope[]
+  descents: CourseSlope[]
+}
+
 export type Note = { id: number; created_at: string; text: string }
 
 export type UsageRow = {
@@ -256,6 +272,14 @@ export const fetchGoals = () => request<Goal[]>('/api/goals')
 export const createGoal = (goal: GoalInput) => request<Goal>('/api/goals', json('POST', goal))
 export const updateGoal = (id: number, goal: GoalInput) => request<Goal>(`/api/goals/${id}`, json('PUT', goal))
 export const deleteGoal = (id: number) => send(`/api/goals/${id}`, { method: 'DELETE' })
+export const fetchCourse = (goalId: number) => request<Course | null>(`/api/goals/${goalId}/course`)
+export const uploadCourse = (goalId: number, file: File) =>
+  request<Course>(`/api/goals/${goalId}/course`, {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/gpx+xml' },
+    body: file,
+  })
+export const deleteCourse = (goalId: number) => send(`/api/goals/${goalId}/course`, { method: 'DELETE' })
 export const fetchNotes = () => request<Note[]>('/api/notes')
 export const deleteNote = (id: number) => send(`/api/notes/${id}`, { method: 'DELETE' })
 export const fetchUsage = (recent: number) => request<Usage>(`/api/usage?recent=${recent}`)

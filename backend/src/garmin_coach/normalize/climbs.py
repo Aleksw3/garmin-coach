@@ -85,7 +85,9 @@ def even_profile(points: list[Point]) -> list[Point]:
     ]
 
 
-def climb_ranges(profile: list[Point]) -> list[tuple[int, int]]:
+def climb_ranges(
+    profile: list[Point], max_dip_m: float = MAX_DIP_M, min_gain_m: float = MIN_GAIN_M
+) -> list[tuple[int, int]]:
     ranges = []
     start = 0
     while start < len(profile) - 1:
@@ -93,12 +95,12 @@ def climb_ranges(profile: list[Point]) -> list[tuple[int, int]]:
         for index in range(start + 1, len(profile)):
             if profile[index].elevation > profile[top].elevation:
                 top = index
-            elif profile[top].elevation - profile[index].elevation > MAX_DIP_M:
+            elif profile[top].elevation - profile[index].elevation > max_dip_m:
                 break
         bottom = min(range(top, start - 1, -1), key=lambda i: profile[i].elevation)
         gain = profile[top].elevation - profile[bottom].elevation
         length = profile[top].distance - profile[bottom].distance
-        if gain >= MIN_GAIN_M and gain >= MIN_GRADE * length:
+        if gain >= min_gain_m and gain >= MIN_GRADE * length:
             ranges.append((bottom, top))
             start = top + 1
         else:

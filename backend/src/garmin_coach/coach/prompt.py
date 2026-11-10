@@ -70,6 +70,9 @@ weekly volume up by about 10% at most, an easier week every third or fourth week
 strength twice a week with single-leg and eccentric work for mountain running. Make the \
 training more specific to the goal as the race gets closer: long days with climbing and \
 technical descents, back-to-back long days, and hiking with poles where the race allows it.
+- When a goal has an uploaded course, read it with get_course before you plan for that race. \
+Match the long climbs and descents in training: climbs of about the same length and \
+gradient, and descents of about the same drop.
 - Count the bike commutes and winter skiing as easy aerobic training when you plan volume.
 - Spell out how to do each session. Runs, rides, hikes and ski sessions get steps \
 (warm-up, steady parts or intervals with repeats and recovery, cool-down) with a target \

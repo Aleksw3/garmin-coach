@@ -21,6 +21,7 @@ from garmin_coach.coach.plan import (
     session_targets,
     sessions_between,
 )
+from garmin_coach.course import course_text, describe, goal_course
 from garmin_coach.evidence.library import citation, search
 from garmin_coach.garmin.workouts import find_exercises
 from garmin_coach.metrics.hills import find_hills
@@ -47,6 +48,7 @@ from garmin_coach.models import (
     DailyWellness,
     Evidence,
     Goal,
+    GoalCourse,
     Plan,
     PlannedSession,
     SessionMatch,
@@ -111,6 +113,12 @@ class ActivityQuery(DateRange):
 
 class ActivityId(ToolInput):
     activity_id: int
+
+
+class GoalId(ToolInput):
+    goal_id: int | None = Field(
+        default=None, description="Leave empty for the active goal with a course"
+    )
 
 
 class WellnessRange(DateRange):
@@ -510,7 +518,22 @@ def goal_text(goal: Goal) -> str:
 
 def get_goals(ctx: ToolContext, _args: ToolInput) -> str:
     goals = ctx.session.scalars(select(Goal).order_by(Goal.status, Goal.priority, Goal.id)).all()
-    return "\n".join(goal_text(g) for g in goals) or "No goals set"
+    with_course = set(ctx.session.scalars(select(GoalCourse.goal_id)))
+    return (
+        "\n".join(
+            goal_text(g) + (" | course uploaded, see get_course" if g.id in with_course else "")
+            for g in goals
+        )
+        or "No goals set"
+    )
+
+
+def get_course(ctx: ToolContext, args: GoalId) -> str:
+    found = goal_course(ctx.session, args.goal_id)
+    if found is None:
+        return "No course uploaded. The athlete can upload a GPX file on the Goals page"
+    goal, row = found
+    return "\n".join([f"goal {goal.id} {goal.title}", *course_text(describe(row))])
 
 
 def get_notes(ctx: ToolContext, args: NoteQuery) -> str:
@@ -773,6 +796,13 @@ TOOLS = (
     ),
     Tool(
         "get_goals", "The athlete's goals, including race details and status.", ToolInput, get_goals
+    ),
+    Tool(
+        "get_course",
+        "The course of a goal race from the uploaded GPX track: distance, climbing and descent, "
+        "the legs between aid stations or every 10 km, and the long climbs and descents.",
+        GoalId,
+        get_course,
     ),
     Tool(
         "get_plan",

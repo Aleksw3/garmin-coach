@@ -82,6 +82,7 @@ Coaching tables:
 
 - `athlete_profile`: birth year, sex, height, max and resting HR, HR zone model, injury history, available training days, equipment.
 - `goal`: type (race, strength, habit), title, target date, target value, race details (distance, elevation gain, terrain, cutoffs), priority, status.
+- `goal_course`: the course of a goal race from a GPX file uploaded on the Goals page. It stores the elevation every 100 m and the waypoints that lie on the track as aid stations. The legs, the totals and the climbs and descents of 100 m or more come from that profile, and the coach reads them with `get_course`.
 - `plan`, `planned_session`: the training plan. A session has sport, date, type (easy, long, intervals, hills, strength, rest), targets (duration, distance, vertical, zone, exercises) and notes. Weeks come from the dates, so there is no `plan_week` table.
 - `season_week`: the season outline. One row per week with a phase (base, build, peak, taper, race, recovery) and targets for hours without commutes, climbing on foot and the longest run or hike. The coach proposes it with `propose_season`, reads it next to what was done with `get_season`, and fits each training block to it.
 - `session_match`: links a planned session to the activity that fulfilled it, with a compliance score.

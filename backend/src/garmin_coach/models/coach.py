@@ -1,6 +1,17 @@
 from datetime import date, datetime
+from typing import Any
 
-from sqlalchemy import BigInteger, Date, DateTime, Float, ForeignKey, Integer, String, Text
+from sqlalchemy import (
+    JSON,
+    BigInteger,
+    Date,
+    DateTime,
+    Float,
+    ForeignKey,
+    Integer,
+    String,
+    Text,
+)
 from sqlalchemy.orm import Mapped, mapped_column
 
 from garmin_coach.db import Base
@@ -38,6 +49,18 @@ class Goal(Base):
     notes: Mapped[str | None] = mapped_column(Text)
     priority: Mapped[str] = mapped_column(String(1), default="A")
     status: Mapped[str] = mapped_column(String(16), default="active")
+
+
+class GoalCourse(Base):
+    __tablename__ = "goal_course"
+
+    goal_id: Mapped[int] = mapped_column(
+        ForeignKey("goal.id", ondelete="CASCADE"), primary_key=True
+    )
+    name: Mapped[str | None] = mapped_column(String(200))
+    uploaded_at: Mapped[datetime] = mapped_column(DateTime)
+    profile: Mapped[list[Any]] = mapped_column(JSON)
+    waypoints: Mapped[list[Any]] = mapped_column(JSON)
 
 
 class CoachNote(Base):

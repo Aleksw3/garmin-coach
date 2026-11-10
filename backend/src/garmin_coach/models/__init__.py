@@ -16,6 +16,7 @@ from garmin_coach.models.coach import (
     CoachNote,
     Conversation,
     Goal,
+    GoalCourse,
     Message,
     ThresholdTest,
 )
@@ -48,6 +49,7 @@ __all__ = [
     "Evidence",
     "EvidenceTopic",
     "Goal",
+    "GoalCourse",
     "Message",
     "Plan",
     "PlanProposal",

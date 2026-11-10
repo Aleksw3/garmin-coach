@@ -23,7 +23,7 @@ A self-hosted training coach. It syncs Garmin data to a home server and uses Cla
    - the Garmin Connect login, including the two-step code if your account uses one;
    - how much history to fetch. The fetch runs in the background, and Settings shows how far it has come.
 4. In the app, finish setting up:
-   - On Goals, add your goals.
+   - On Goals, add your goals. A race goal takes the course as a GPX file, so the coach knows the climbs and descents.
    - On Trends, add your LT1 and LT2 heart rates to get your zones.
    - On Settings, enter an [ntfy](https://ntfy.sh) topic to get the coach's messages on your phone. Pick a long name that is hard to guess and subscribe to it in the ntfy app.
    - On Research, press Fetch now and approve the papers you want the coach to use.

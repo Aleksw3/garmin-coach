@@ -1,5 +1,5 @@
 import type { EChartsCoreOption } from 'echarts/core'
-import type { DaySpend, GroupTotals, HrZone, HrvPoint, Load, Trends, ZoneWeek } from './api'
+import type { Course, DaySpend, GroupTotals, HrZone, HrvPoint, Load, Trends, ZoneWeek } from './api'
 import { addDays, number, shortDate } from './format'
 import { SPORT_GROUPS, displayGroup, type Theme } from './theme'
 
@@ -444,5 +444,54 @@ export function dailyCostOption(theme: Theme, days: string[], rows: DaySpend[]):
         itemStyle: topSeries[column] === index ? { borderRadius: [4, 4, 0, 0] } : undefined,
       })),
     })),
+  }
+}
+
+export function courseOption(theme: Theme, course: Course): EChartsCoreOption {
+  const color = theme.series(2)
+  const lowest = Math.min(...course.profile.map(([, elevation]) => elevation))
+  return {
+    ...base(theme, false),
+    grid: { ...base(theme, false).grid, top: 24 },
+    tooltip: {
+      ...base(theme, false).tooltip,
+      trigger: 'axis',
+      axisPointer: { type: 'line', lineStyle: { color: theme.baseline } },
+      formatter: (params: { data: [number, number] }[]) => {
+        const [km, elevation] = params[0].data
+        return tooltipRow(color, `km ${number(km, 1)}`, `${number(elevation)} m`)
+      },
+    },
+    xAxis: {
+      type: 'value',
+      min: 0,
+      max: course.distance_km,
+      ...axisStyle(theme),
+      splitLine: { show: false },
+      axisLabel: { ...axisStyle(theme).axisLabel, formatter: (km: number) => `${number(km)} km` },
+    },
+    yAxis: {
+      type: 'value',
+      min: Math.floor(lowest / 100) * 100,
+      ...axisStyle(theme),
+      axisLine: { show: false },
+    },
+    series: [
+      {
+        type: 'line',
+        showSymbol: false,
+        lineStyle: { width: 2, color },
+        itemStyle: { color },
+        areaStyle: { color, opacity: 0.15 },
+        data: course.profile,
+        markLine: {
+          silent: true,
+          symbol: 'none',
+          lineStyle: { color: theme.textMuted, type: 'dashed', width: 1 },
+          label: { color: theme.textSecondary, fontSize: 10, formatter: '{b}' },
+          data: course.waypoints.map((waypoint) => ({ name: waypoint.name, xAxis: waypoint.km })),
+        },
+      },
+    ],
   }
 }

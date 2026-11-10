@@ -1,20 +1,28 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import { useState, type FormEvent, type ReactNode } from 'react'
+import { useMemo, useState, type FormEvent, type ReactNode } from 'react'
 import {
   createGoal,
+  deleteCourse,
   deleteGoal,
   deleteNote,
+  fetchCourse,
   fetchGoals,
   fetchNotes,
   fetchProfile,
   saveProfile,
   updateGoal,
+  uploadCourse,
+  type Course,
+  type CourseSlope,
   type Goal,
   type GoalInput,
   type Profile,
 } from '../api'
+import { courseOption } from '../charts'
 import { Card } from '../components/Card'
+import { Chart } from '../components/Chart'
 import { number, shortDate } from '../format'
+import { useTheme } from '../theme'
 
 const EMPTY_GOAL: GoalInput = {
   kind: 'race',
@@ -168,6 +176,88 @@ function goalFacts(goal: Goal): string[] {
   ].filter((fact): fact is string => fact !== null)
 }
 
+function slopeText(slope: CourseSlope): string {
+  return `km ${number(slope.start_km, 1)} to ${number(slope.end_km, 1)}, ${number(Math.abs(slope.change_m))} m at ${number(Math.abs(slope.grade) * 100)}%`
+}
+
+function CourseProfile({ course }: { course: Course }) {
+  const theme = useTheme()
+  const option = useMemo(() => courseOption(theme, course), [theme, course])
+  return (
+    <div className="space-y-2">
+      <p className="text-sm text-secondary">
+        Course{course.name ? ` ${course.name}` : ''}: {number(course.distance_km, 1)} km · {number(course.gain_m)} m up ·{' '}
+        {number(course.loss_m)} m down
+      </p>
+      <Chart option={option} height={180} label="Elevation profile of the course" />
+      <details className="text-xs text-secondary">
+        <summary className="cursor-pointer text-muted">Legs, long climbs and long descents</summary>
+        <ul className="mt-1 space-y-0.5">
+          {course.legs.map((leg) => (
+            <li key={leg.end_km}>
+              To {leg.name} at km {number(leg.end_km, 1)}: {number(leg.end_km - leg.start_km, 1)} km, {number(leg.gain_m)} m up,{' '}
+              {number(leg.loss_m)} m down
+            </li>
+          ))}
+        </ul>
+        {course.climbs.length > 0 && <p className="mt-2 text-muted">Climbs of 100 m or more</p>}
+        <ul className="space-y-0.5">
+          {course.climbs.map((slope) => (
+            <li key={slope.start_km}>{slopeText(slope)}</li>
+          ))}
+        </ul>
+        {course.descents.length > 0 && <p className="mt-2 text-muted">Descents of 100 m or more</p>}
+        <ul className="space-y-0.5">
+          {course.descents.map((slope) => (
+            <li key={slope.start_km}>{slopeText(slope)}</li>
+          ))}
+        </ul>
+      </details>
+    </div>
+  )
+}
+
+function CourseSection({ goal }: { goal: Goal }) {
+  const queryClient = useQueryClient()
+  const key = ['course', goal.id]
+  const course = useQuery({ queryKey: key, queryFn: () => fetchCourse(goal.id) })
+  const upload = useMutation({
+    mutationFn: (file: File) => uploadCourse(goal.id, file),
+    onSuccess: (data) => queryClient.setQueryData(key, data),
+  })
+  const remove = useMutation({
+    mutationFn: () => deleteCourse(goal.id),
+    onSuccess: () => queryClient.setQueryData(key, null),
+  })
+  return (
+    <div className="space-y-2 pt-1">
+      {course.data && <CourseProfile course={course.data} />}
+      <div className="flex flex-wrap items-center gap-3 text-xs">
+        <label className="cursor-pointer text-accent">
+          {course.data ? 'Replace the GPX file' : 'Upload the course as a GPX file'}
+          <input
+            type="file"
+            accept=".gpx,application/gpx+xml"
+            className="hidden"
+            onChange={(event) => {
+              const file = event.target.files?.[0]
+              if (file) upload.mutate(file)
+              event.target.value = ''
+            }}
+          />
+        </label>
+        {course.data && (
+          <button type="button" onClick={() => remove.mutate()} className="text-muted hover:text-critical">
+            Remove the course
+          </button>
+        )}
+        {upload.isPending && <span className="text-muted">Reading the file</span>}
+        {upload.error && <span className="text-critical">{upload.error.message}</span>}
+      </div>
+    </div>
+  )
+}
+
 function GoalCard({ goal, onSave, onDelete }: { goal: Goal; onSave: (g: GoalInput) => void; onDelete: () => void }) {
   const [editing, setEditing] = useState(false)
   if (editing) {
@@ -195,6 +285,7 @@ function GoalCard({ goal, onSave, onDelete }: { goal: Goal; onSave: (g: GoalInpu
       {goal.terrain && <p className="text-sm text-secondary">{goal.terrain}</p>}
       {goal.cutoffs && <p className="text-sm text-secondary">Cutoffs: {goal.cutoffs}</p>}
       {goal.notes && <p className="text-xs text-muted">{goal.notes}</p>}
+      {goal.kind === 'race' && <CourseSection goal={goal} />}
       <div className="flex gap-3 pt-1 text-xs">
         <button type="button" onClick={() => setEditing(true)} className="text-accent">
           Edit

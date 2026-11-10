@@ -1,4 +1,6 @@
 import logging
+import threading
+from collections import Counter
 from collections.abc import Callable
 from datetime import datetime, timedelta
 
@@ -13,6 +15,7 @@ from garmin_coach.reports import week_start
 log = logging.getLogger(__name__)
 
 MAX_FEEDBACK_PER_SYNC = 3
+MAX_FEEDBACK_ATTEMPTS = 3
 
 CHECKIN_PROMPT = """\
 Scheduled morning check-in for {day:%A %d %B}. Look at last night's sleep, HRV and resting \
@@ -49,6 +52,8 @@ class ProactiveCoach:
         self.notifier = notifier
         self.feedback_window = feedback_window
         self.now = now
+        self._feedback_lock = threading.Lock()
+        self._failed_attempts: Counter[int] = Counter()
 
     def thread(self) -> int:
         title = f"Coach, week from {week_start(self.now().date()):%d %b %Y}"
@@ -94,7 +99,7 @@ class ProactiveCoach:
         answer = answer.strip()
         if answer:
             self.notifier.send(title, answer)
-        return answer or None
+        return answer
 
     def morning_checkin(self) -> str | None:
         day = self.now().date()
@@ -115,8 +120,14 @@ class ProactiveCoach:
         )
 
     def activity_feedback(self) -> list[str]:
-        if not self.coach.ready:
+        if not self.coach.ready or not self._feedback_lock.acquire(blocking=False):
             return []
+        try:
+            return self._feedback_on_new_activities()
+        finally:
+            self._feedback_lock.release()
+
+    def _feedback_on_new_activities(self) -> list[str]:
         since = self.now() - self.feedback_window
         with self.sessions() as session:
             done = set(session.scalars(select(ActivityFeedback.activity_id)))
@@ -127,11 +138,10 @@ class ProactiveCoach:
                     .where(Activity.start_time_local >= since)
                     .order_by(Activity.start_time_local)
                 )
-                if not activity.is_commute and activity.id not in done
+                if not activity.is_commute
+                and activity.id not in done
+                and self._failed_attempts[activity.id] < MAX_FEEDBACK_ATTEMPTS
             ][:MAX_FEEDBACK_PER_SYNC]
-            for activity in activities:
-                session.add(ActivityFeedback(activity_id=activity.id, created_at=self.now()))
-            session.commit()
         answers = []
         for activity in activities:
             name = activity.name or activity.type_key
@@ -141,6 +151,12 @@ class ProactiveCoach:
                 FEEDBACK_PROMPT.format(id=activity.id, name=name, start=activity.start_time_local),
                 f"Feedback: {name}",
             )
+            if answer is None:
+                self._failed_attempts[activity.id] += 1
+                continue
+            with self.sessions() as session:
+                session.add(ActivityFeedback(activity_id=activity.id, created_at=self.now()))
+                session.commit()
             if answer:
                 answers.append(answer)
         return answers

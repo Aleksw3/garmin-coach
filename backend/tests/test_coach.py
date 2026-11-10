@@ -554,3 +554,30 @@ def test_a_new_week_starts_with_a_summary_of_last_week(
             list(session.scalars(select(Message).where(Message.conversation_id == threads[1].id)))
         )
     assert [i.role for i in items] == ["summary", "event", "coach"]
+
+
+def test_failed_feedback_is_tried_again_on_the_next_sync(
+    seeded: sessionmaker[Session], sent: list[Any]
+) -> None:
+    claude = FakeClaude([text_reply("Good steady run.")])
+    coach = make_coach(seeded, claude, budget=0)
+    proactive = ProactiveCoach(
+        seeded, coach, Notifier("https://ntfy.sh", "coach-topic"), now=lambda: NOW
+    )
+
+    assert proactive.activity_feedback() == []
+    assert claude.requests == []
+
+    coach.settings = replace(SETTINGS, monthly_budget_usd=5.0)
+    assert proactive.activity_feedback() == ["Good steady run."]
+    assert proactive.activity_feedback() == []
+
+
+def test_feedback_stops_after_three_failed_attempts(seeded: sessionmaker[Session]) -> None:
+    coach = make_coach(seeded, FakeClaude([text_reply("Good steady run.")]), budget=0)
+    proactive = ProactiveCoach(seeded, coach, Notifier("https://ntfy.sh", None), now=lambda: NOW)
+    for _ in range(3):
+        proactive.activity_feedback()
+
+    coach.settings = replace(SETTINGS, monthly_budget_usd=5.0)
+    assert proactive.activity_feedback() == []

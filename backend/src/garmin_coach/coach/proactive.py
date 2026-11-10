@@ -24,8 +24,9 @@ is planned today, say what would fit."""
 FEEDBACK_PROMPT = """\
 Scheduled feedback on activity {id} ({name}, {start:%A %d %B %H:%M}). Read it with \
 get_activity. Compare it with the planned session for that day if there is one, and with \
-similar recent sessions. In at most 6 sentences, say what went well, what to watch and \
-anything to adjust in the next days. Use propose_changes only for a clear reason."""
+similar recent sessions. Start with your rating of the effort and the numbers behind it. In \
+at most 6 sentences in total, say what went well, what to watch and anything to adjust in the \
+next days. Use propose_changes only for a clear reason."""
 
 REVIEW_PROMPT = """\
 Scheduled weekly review for the week from {first} to {last}. Compare what I did with the \

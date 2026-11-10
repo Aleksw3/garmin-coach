@@ -12,6 +12,7 @@ from sqlalchemy.orm import Session
 from garmin_coach.coach.plan import (
     Change,
     NewPlan,
+    NewSeason,
     PlanError,
     ProposalBody,
     create_proposal,
@@ -26,6 +27,7 @@ from garmin_coach.metrics.hills import find_hills
 from garmin_coach.metrics.load import training_load
 from garmin_coach.metrics.recovery import hrv_baseline, resting_hr_baseline
 from garmin_coach.metrics.running import climb_per_km, terrain
+from garmin_coach.metrics.season import season_progress, week_targets
 from garmin_coach.metrics.strength import effective_sets
 from garmin_coach.metrics.summary import running_lines, strength_lines
 from garmin_coach.metrics.zones import (
@@ -175,6 +177,10 @@ class ProposalText(ToolInput):
 
 class PlanProposalInput(ProposalText):
     plan: NewPlan
+
+
+class SeasonInput(ProposalText):
+    season: NewSeason
 
 
 class ChangesInput(ProposalText):
@@ -531,6 +537,12 @@ def plan_lines(ctx: ToolContext, args: DateRange) -> list[str]:
                 ]
             )
         )
+    this_week = season_progress(ctx.session, args.start, args.end)
+    for entry in this_week:
+        lines.append(
+            f"Season outline, week from {entry.week.week_start}: {entry.week.phase}, "
+            f"targets {week_targets(entry.week)}"
+        )
     for proposal in pending_proposals(ctx.session):
         lines.append(f"Pending proposal {proposal.id}, not accepted yet: {proposal.summary}")
     return lines
@@ -580,6 +592,41 @@ def propose_changes(ctx: ToolContext, args: ChangesInput) -> str:
         f"Created proposal {proposal.id} with {len(args.changes)} changes. The athlete accepts "
         "or rejects it on the Plan page. Nothing changes before that."
     )
+
+
+def propose_season(ctx: ToolContext, args: SeasonInput) -> str:
+    proposal = create_proposal(
+        ctx.session,
+        args.summary,
+        args.reason,
+        ProposalBody(season=args.season),
+        ctx.conversation_id,
+        ctx.now,
+    )
+    first = min(week.week_start for week in args.season.weeks)
+    return (
+        f"Created proposal {proposal.id} with {len(args.season.weeks)} weeks. It replaces the "
+        f"season outline from the week of {first} on once the athlete accepts it on the Plan "
+        "page. Nothing changes before that."
+    )
+
+
+def get_season(ctx: ToolContext, args: DateRange) -> str:
+    progress = season_progress(ctx.session, args.start, args.end)
+    if not progress:
+        return "No season outline in this range. Propose one with propose_season"
+    lines = ["Season outline per week: phase, targets, then what the athlete did"]
+    for entry in progress:
+        week, done = entry.week, entry.done
+        line = f"  week from {week.week_start}: {week.phase}, targets {week_targets(week)}"
+        if week.week_start <= ctx.today:
+            line += (
+                f" | done {done.hours:.1f} h, {done.climb_m:.0f} m climbing on foot, "
+                f"longest {done.longest_h:.1f} h"
+                + (" (week not over)" if week.week_start == week_start(ctx.today) else "")
+            )
+        lines.append(line + (f" | {week.focus}" if week.focus else ""))
+    return "\n".join(lines)
 
 
 def search_evidence(ctx: ToolContext, args: EvidenceQuery) -> str:
@@ -758,6 +805,13 @@ TOOLS = (
         get_running_weeks,
     ),
     Tool(
+        "get_season",
+        "The season outline per week (phase and targets for hours, climbing on foot and the "
+        "longest run or hike) next to what the athlete did in the weeks so far.",
+        DateRange,
+        get_season,
+    ),
+    Tool(
         "get_strength",
         "Strength per week: hard sets per muscle group, single-leg and eccentric sets, and the "
         "best estimated one-rep max per exercise.",
@@ -798,6 +852,14 @@ TOOLS = (
         "session from its first day on. Include rest days as sessions with sport rest.",
         PlanProposalInput,
         propose_plan,
+    ),
+    Tool(
+        "propose_season",
+        "Propose a season outline of up to 60 weeks: one row per week with a phase and targets "
+        "for hours, climbing on foot and the longest run or hike. When accepted it replaces the "
+        "outline from its first week on. It does not touch planned sessions.",
+        SeasonInput,
+        propose_season,
     ),
     Tool(
         "search_evidence",

@@ -5,12 +5,14 @@ import {
   createConversation,
   fetchCalendar,
   fetchProposals,
+  fetchSeason,
   rejectProposal,
   streamMessage,
   type Activity,
   type PlannedSession,
   type Proposal,
   type ProposalChange,
+  type SeasonWeekSpec,
   type SessionSpec,
 } from '../api'
 import { Card } from '../components/Card'
@@ -43,6 +45,16 @@ function sessionLine(session: SessionSpec): string {
   return [dayLabel(session.day), session.title, targets(session)].filter(Boolean).join(', ')
 }
 
+function seasonTargets(week: SeasonWeekSpec): string {
+  return [
+    `${number(week.hours, 1)} h`,
+    week.climb_m !== null ? `${number(week.climb_m)} m up on foot` : null,
+    week.longest_h !== null ? `longest ${number(week.longest_h, 1)} h` : null,
+  ]
+    .filter(Boolean)
+    .join(', ')
+}
+
 function ChangeLine({ change }: { change: ProposalChange }) {
   if (change.op === 'add' && change.session) {
     return <>Add: {sessionLine(change.session)}</>
@@ -65,6 +77,7 @@ function ProposalCard({ proposal }: { proposal: Proposal }) {
     Promise.all([
       queryClient.invalidateQueries({ queryKey: ['proposals'] }),
       queryClient.invalidateQueries({ queryKey: ['calendar'] }),
+      queryClient.invalidateQueries({ queryKey: ['season'] }),
     ])
   const accept = useMutation({ mutationFn: () => acceptProposal(proposal.id), onSuccess: refresh })
   const reject = useMutation({ mutationFn: () => rejectProposal(proposal.id), onSuccess: refresh })
@@ -93,6 +106,21 @@ function ProposalCard({ proposal }: { proposal: Proposal }) {
             </ul>
           </details>
         </div>
+      )}
+      {proposal.season && (
+        <details className="mt-3 text-sm" open={proposal.season.weeks.length <= 16}>
+          <summary className="cursor-pointer text-xs text-muted select-none">
+            Season outline, {proposal.season.weeks.length} weeks from {shortDate(proposal.season.weeks[0].week_start)}
+          </summary>
+          <ul className="mt-2 space-y-1">
+            {proposal.season.weeks.map((week) => (
+              <li key={week.week_start} className="text-secondary">
+                {shortDate(week.week_start)}, {week.phase}, {seasonTargets(week)}
+                {week.focus && <span className="text-muted">. {week.focus}</span>}
+              </li>
+            ))}
+          </ul>
+        </details>
       )}
       {proposal.changes.length > 0 && (
         <ul className="mt-3 space-y-1 text-sm text-secondary">
@@ -128,6 +156,7 @@ function ProposalCard({ proposal }: { proposal: Proposal }) {
 
 function PlanRequest() {
   const queryClient = useQueryClient()
+  const [what, setWhat] = useState<'block' | 'season'>('block')
   const [weeks, setWeeks] = useState(4)
   const [start, setStart] = useState(() => addDays(mondayOf(localToday()), 7))
   const [notes, setNotes] = useState('')
@@ -137,11 +166,17 @@ function PlanRequest() {
 
   const submit = async (event: FormEvent) => {
     event.preventDefault()
-    const text = [
-      `Build a ${weeks}-week training block starting ${start}.`,
-      notes.trim(),
-      'Look at my recent training, recovery, profile, goals and current plan first, then propose it with propose_plan.',
-    ]
+    const request =
+      what === 'block'
+        ? [
+            `Build a ${weeks}-week training block starting ${start}.`,
+            'Look at my recent training, recovery, profile, goals, season outline and current plan first, then propose it with propose_plan.',
+          ]
+        : [
+            `Build a season outline from the week of ${mondayOf(start)} to my most important race.`,
+            'Look at my last 8 weeks of training, my profile and my goals first, then propose it with propose_season.',
+          ]
+    const text = [request[0], notes.trim(), request[1]]
       .filter(Boolean)
       .join(' ')
     setPending({ user: text, coach: '', tools: [], error: null })
@@ -166,20 +201,33 @@ function PlanRequest() {
   return (
     <Card title="Ask the coach for a plan" subtitle="Uses the larger model, a plan costs about a dollar">
       <form onSubmit={(event) => void submit(event)} className="grid gap-3 sm:grid-cols-2">
-        <label className="block text-xs text-muted">
-          <span className="mb-1 block">Length</span>
+        <label className="block text-xs text-muted sm:col-span-2">
+          <span className="mb-1 block">What to plan</span>
           <select
-            value={weeks}
-            onChange={(event) => setWeeks(Number(event.target.value))}
+            value={what}
+            onChange={(event) => setWhat(event.target.value as 'block' | 'season')}
             className="w-full rounded-lg border border-line bg-page px-2 py-1.5 text-base text-primary sm:text-sm"
           >
-            {PLAN_LENGTHS.map((length) => (
-              <option key={length} value={length}>
-                {length} weeks
-              </option>
-            ))}
+            <option value="block">A training block with every session</option>
+            <option value="season">A season outline up to the race, with weekly targets</option>
           </select>
         </label>
+        {what === 'block' && (
+          <label className="block text-xs text-muted">
+            <span className="mb-1 block">Length</span>
+            <select
+              value={weeks}
+              onChange={(event) => setWeeks(Number(event.target.value))}
+              className="w-full rounded-lg border border-line bg-page px-2 py-1.5 text-base text-primary sm:text-sm"
+            >
+              {PLAN_LENGTHS.map((length) => (
+                <option key={length} value={length}>
+                  {length} weeks
+                </option>
+              ))}
+            </select>
+          </label>
+        )}
         <label className="block text-xs text-muted">
           <span className="mb-1 block">First day</span>
           <input
@@ -265,9 +313,11 @@ function WeekRow({
   sessions,
   activities,
   doneSeconds,
+  season,
   today,
   onOpen,
 }: {
+  season?: SeasonWeekSpec
   monday: string
   sessions: PlannedSession[]
   activities: Activity[]
@@ -286,6 +336,12 @@ function WeekRow({
         <span className="ml-2 text-xs font-normal text-muted">
           planned {duration(plannedMinutes * 60)}, done {duration(doneSeconds)}
         </span>
+        {season && (
+          <span className="block text-xs font-normal text-secondary">
+            {season.phase.charAt(0).toUpperCase() + season.phase.slice(1)} week, outline {seasonTargets(season)}
+            {season.focus ? `. ${season.focus}` : ''}
+          </span>
+        )}
       </h3>
       <div className="grid gap-2 md:grid-cols-7">
         {days.map((day) => {
@@ -322,6 +378,7 @@ export function PlanPage() {
   const last = addDays(first, WEEKS_SHOWN * 7 - 1)
   const calendar = useQuery({ queryKey: ['calendar', first, last], queryFn: () => fetchCalendar(first, last) })
   const proposals = useQuery({ queryKey: ['proposals'], queryFn: fetchProposals })
+  const season = useQuery({ queryKey: ['season', first, last], queryFn: () => fetchSeason(first, last) })
   const mondays = Array.from({ length: WEEKS_SHOWN }, (_, index) => addDays(first, index * 7))
   const data = calendar.data
   const matched = new Set(data?.sessions.map((s) => s.match?.activity_id))
@@ -382,6 +439,7 @@ export function PlanPage() {
                 key={monday}
                 monday={monday}
                 today={today}
+                season={season.data?.find((week) => week.week_start === monday)}
                 sessions={data.sessions.filter((s) => mondayOf(s.day) === monday)}
                 activities={weekActivities.filter((a) => !matched.has(a.id))}
                 doneSeconds={weekActivities.reduce((sum, a) => sum + (a.duration_s ?? 0), 0)}

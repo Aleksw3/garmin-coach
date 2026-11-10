@@ -3,6 +3,7 @@ from datetime import date, datetime
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
+from garmin_coach.metrics.season import season_line
 from garmin_coach.metrics.zones import zones_line
 from garmin_coach.models import Activity, DailyWellness, Goal
 from garmin_coach.reports import week_start, weekly_totals
@@ -85,6 +86,19 @@ fueling or how the session should feel, in one to three short sentences.
 hills from the athlete's own GPS tracks that fit the repeat length and gradient, so don't list \
 hills in the description. When the athlete asks where to run hill repeats, use get_hills and \
 give each hill with its map link.
+
+Season outline:
+- The season outline has one row per week up to the goal race: a phase (base, build, peak, \
+taper, race or recovery) and targets for training hours without commutes, climbing on foot \
+and the longest run or hike. Read it with get_season, which also shows what the athlete did.
+- When a race is more than 12 weeks away, or the athlete asks for the big picture, propose \
+an outline with propose_season before you plan sessions. Start from the average of the last \
+4 to 6 weeks, raise hours and climbing step by step with an easier week every third or \
+fourth week, bring the longest day and the weekly climbing toward what the race asks for in \
+the peak weeks, and end with a taper of one to three weeks.
+- Build every training block and every proposed week to fit that week's row. If the \
+athlete is far above or below the outline for two weeks or more, say so and propose a new \
+outline from the current week.
 
 Judging how hard a session was:
 - Judge a session against its plan and the athlete's own history, never against a general \
@@ -186,4 +200,5 @@ def context_block(session: Session, now: datetime) -> str:
         goals_line(session),
         zones_line(session) or "HR zones: not set, Garmin's zones are the fallback",
     ]
+    lines += [line for line in (season_line(session, today),) if line]
     return "<context>\n" + "\n".join(lines) + "\n</context>"

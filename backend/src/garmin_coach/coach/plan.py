@@ -5,12 +5,14 @@ from pydantic import BaseModel, ConfigDict, Field, model_validator
 from sqlalchemy import delete, select
 from sqlalchemy.orm import Session
 
-from garmin_coach.models import Goal, Plan, PlannedSession, PlanProposal
+from garmin_coach.models import Goal, Plan, PlannedSession, PlanProposal, SeasonWeek
 
 MAX_SESSIONS = 150
 MAX_PLAN_DAYS = 120
+MAX_SEASON_WEEKS = 60
 
 Sport = Literal["run", "vertical", "ski", "cycling", "strength", "other", "rest"]
+Phase = Literal["base", "build", "peak", "taper", "race", "recovery"]
 Kind = Literal[
     "easy", "long", "hills", "intervals", "tempo", "race", "strength", "mobility", "cross", "rest"
 ]
@@ -134,9 +136,47 @@ class Change(BaseModel):
         return self
 
 
+class SeasonWeekSpec(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    week_start: date = Field(description="The Monday of the week, YYYY-MM-DD")
+    phase: Phase
+    hours: float = Field(ge=0, le=60, description="Training hours without bike commutes")
+    climb_m: float | None = Field(
+        default=None, ge=0, le=30000, description="Climbing on foot, running and hiking"
+    )
+    longest_h: float | None = Field(
+        default=None, ge=0, le=40, description="Longest single run or hike in hours"
+    )
+    focus: str | None = Field(
+        default=None, max_length=300, description="What the week is for, in one sentence"
+    )
+
+    @model_validator(mode="after")
+    def check_monday(self) -> Self:
+        if self.week_start.weekday() != 0:
+            raise ValueError(f"{self.week_start} is not a Monday")
+        return self
+
+
+class NewSeason(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    goal_id: int | None = None
+    weeks: list[SeasonWeekSpec] = Field(min_length=1, max_length=MAX_SEASON_WEEKS)
+
+    @model_validator(mode="after")
+    def check_weeks(self) -> Self:
+        starts = [week.week_start for week in self.weeks]
+        if len(set(starts)) != len(starts):
+            raise ValueError("a week appears twice")
+        return self
+
+
 class ProposalBody(BaseModel):
     plan: NewPlan | None = None
     changes: list[Change] = []
+    season: NewSeason | None = None
 
 
 def session_row(plan_id: int, spec: SessionSpec) -> PlannedSession:
@@ -149,8 +189,11 @@ def check_ids(session: Session, body: ProposalBody) -> None:
     missing = ids - found
     if missing:
         raise PlanError(f"No planned session with id {', '.join(map(str, sorted(missing)))}")
-    if body.plan and body.plan.goal_id is not None and session.get(Goal, body.plan.goal_id) is None:
-        raise PlanError(f"No goal with id {body.plan.goal_id}")
+    goal_ids = [body.plan.goal_id if body.plan else None]
+    goal_ids.append(body.season.goal_id if body.season else None)
+    for goal_id in goal_ids:
+        if goal_id is not None and session.get(Goal, goal_id) is None:
+            raise PlanError(f"No goal with id {goal_id}")
 
 
 def create_proposal(
@@ -161,8 +204,8 @@ def create_proposal(
     conversation_id: int | None,
     now: datetime,
 ) -> PlanProposal:
-    if body.plan is None and not body.changes:
-        raise PlanError("The proposal has no plan and no changes")
+    if body.plan is None and not body.changes and body.season is None:
+        raise PlanError("The proposal has no plan, no changes and no season outline")
     check_ids(session, body)
     proposal = PlanProposal(
         created_at=now,
@@ -202,6 +245,7 @@ def plan_for_day(session: Session, day: date, now: datetime) -> Plan:
 def affected_days(session: Session, body: ProposalBody) -> tuple[date, date] | None:
     days = [s.day for s in body.plan.sessions] if body.plan else []
     days += [c.session.day for c in body.changes if c.session]
+    days += [week.week_start for week in body.season.weeks] if body.season else []
     ids = [c.session_id for c in body.changes if c.session_id is not None]
     days += list(session.scalars(select(PlannedSession.day).where(PlannedSession.id.in_(ids))))
     return (min(days), max(days)) if days else None
@@ -227,6 +271,13 @@ def accept_proposal(session: Session, proposal: PlanProposal, now: datetime) -> 
         session.add(plan)
         session.flush()
         session.add_all(session_row(plan.id, spec) for spec in body.plan.sessions)
+    if body.season:
+        first_week = min(week.week_start for week in body.season.weeks)
+        session.execute(delete(SeasonWeek).where(SeasonWeek.week_start >= first_week))
+        session.add_all(
+            SeasonWeek(goal_id=body.season.goal_id, **week.model_dump())
+            for week in body.season.weeks
+        )
     for change in body.changes:
         if change.op == "add" and change.session:
             plan = plan_for_day(session, change.session.day, now)

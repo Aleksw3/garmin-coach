@@ -76,3 +76,15 @@ class SessionMatch(Base):
     activity_id: Mapped[int] = mapped_column(BigInteger, unique=True)
     compliance: Mapped[float | None] = mapped_column(Float)
     details: Mapped[str] = mapped_column(Text)
+
+
+class SeasonWeek(Base):
+    __tablename__ = "season_week"
+
+    week_start: Mapped[date] = mapped_column(Date, primary_key=True)
+    goal_id: Mapped[int | None] = mapped_column(ForeignKey("goal.id", ondelete="SET NULL"))
+    phase: Mapped[str] = mapped_column(String(16))
+    hours: Mapped[float] = mapped_column(Float)
+    climb_m: Mapped[float | None] = mapped_column(Float)
+    longest_h: Mapped[float | None] = mapped_column(Float)
+    focus: Mapped[str | None] = mapped_column(Text)

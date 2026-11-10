@@ -14,7 +14,9 @@ from garmin_coach.api.routes import activity_out
 from garmin_coach.api.schemas import ActivityOut
 from garmin_coach.coach.plan import (
     Change,
+    NewSeason,
     PlanError,
+    SeasonWeekSpec,
     SessionSpec,
     accept_proposal,
     pending_proposals,
@@ -35,6 +37,7 @@ from garmin_coach.garmin.workouts import (
     send_to_watch,
 )
 from garmin_coach.metrics.compliance import match_sessions
+from garmin_coach.metrics.season import season_progress
 from garmin_coach.metrics.zones import current_zones
 from garmin_coach.models import Activity, Plan, PlannedSession, PlanProposal, SessionMatch
 from garmin_coach.normalize.sports import sport_groups
@@ -113,6 +116,13 @@ class ProposalOut(BaseModel):
     status: str
     plan: NewPlanOut | None
     changes: list[ChangeOut]
+    season: NewSeason | None
+
+
+class SeasonWeekOut(SeasonWeekSpec):
+    done_hours: float
+    done_climb_m: float
+    done_longest_h: float
 
 
 class SessionPatch(BaseModel):
@@ -139,7 +149,26 @@ def proposal_out(session: SessionDep, proposal: PlanProposal) -> ProposalOut:
         status=proposal.status,
         plan=NewPlanOut(**body.plan.model_dump()) if body.plan else None,
         changes=changes,
+        season=body.season,
     )
+
+
+@router.get("/season", response_model=list[SeasonWeekOut])
+def get_season(session: SessionDep, start: date, end: date) -> list[SeasonWeekOut]:
+    return [
+        SeasonWeekOut(
+            week_start=entry.week.week_start,
+            phase=entry.week.phase,  # type: ignore[arg-type]
+            hours=entry.week.hours,
+            climb_m=entry.week.climb_m,
+            longest_h=entry.week.longest_h,
+            focus=entry.week.focus,
+            done_hours=entry.done.hours,
+            done_climb_m=entry.done.climb_m,
+            done_longest_h=entry.done.longest_h,
+        )
+        for entry in season_progress(session, start, end)
+    ]
 
 
 @router.get("/plan", response_model=CalendarOut)

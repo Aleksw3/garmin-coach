@@ -7,6 +7,8 @@ from sqlalchemy.orm import Session, sessionmaker
 
 from garmin_coach import raw_store
 from garmin_coach.coach.agent import Coach, coach_settings
+from garmin_coach.coach.prompt import context_block
+from garmin_coach.coach.tools import ToolContext, run_tool
 from garmin_coach.config import Settings
 from garmin_coach.metrics.compliance import match_sessions, planned_hard_minutes, target_zone
 from garmin_coach.metrics.strength import effective_sets
@@ -195,3 +197,55 @@ def test_targets_without_a_zone_leave_intensity_out() -> None:
     assert planned_hard_minutes(by_feel) is None
     by_distance = PlannedSession(steps=[{"kind": "intervals", "distance_km": 1, "target": "Z4"}])
     assert planned_hard_minutes(by_distance) is None
+
+
+def season_weeks() -> list[dict[str, object]]:
+    return [
+        {"week_start": "2026-10-26", "phase": "base", "hours": 6, "climb_m": 800, "longest_h": 2},
+        {"week_start": "2026-11-02", "phase": "build", "hours": 7, "focus": "First hill block"},
+    ]
+
+
+def test_season_outline_is_proposed_accepted_and_compared(plan: sessionmaker[Session]) -> None:
+    def make_service() -> SyncService:
+        return SyncService(FakeGarmin([]), plan, request_delay=0, sleep=lambda _: None)
+
+    coach = Coach(plan, None, coach_settings(Settings.model_construct()))
+    client = TestClient(single_app(plan, make_service, coach, schedule_sync=False))
+    with plan() as session:
+        context = ToolContext(session, NOW, 1.92)
+        output, ok = run_tool(
+            context,
+            "propose_season",
+            {"summary": "Outline", "reason": "Race in May", "season": {"weeks": season_weeks()}},
+        )
+        assert ok, output
+        _, ok = run_tool(
+            context,
+            "propose_season",
+            {
+                "summary": "Outline",
+                "reason": "Race in May",
+                "season": {"weeks": [{"week_start": "2026-10-27", "phase": "base", "hours": 6}]},
+            },
+        )
+        assert not ok
+        session.commit()
+
+    proposal = client.get("/api/proposals").json()[0]
+    assert [week["phase"] for week in proposal["season"]["weeks"]] == ["base", "build"]
+    assert client.post(f"/api/proposals/{proposal['id']}/accept").status_code == 200
+
+    weeks = client.get("/api/season?start=2026-10-26&end=2026-11-08").json()
+    assert weeks[0]["done_hours"] == pytest.approx(3000 / 3600 + 0.5 + 2 + 0.75)
+    assert weeks[0]["done_longest_h"] == 2
+    assert weeks[1]["focus"] == "First hill block"
+    with plan() as session:
+        output, _ = run_tool(
+            ToolContext(session, NOW, 1.92),
+            "get_season",
+            {"start": "2026-10-26", "end": "2026-11-08"},
+        )
+        assert "week from 2026-10-26: base, targets 6 h, 800 m climbing on foot" in output
+        assert "longest 2.0 h (week not over)" in output
+        assert context_block(session, NOW).count("Season outline this week: base phase") == 1

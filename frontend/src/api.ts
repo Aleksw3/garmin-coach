@@ -364,7 +364,22 @@ export type Proposal = {
   status: string
   plan: { title: string; goal_id: number | null; description: string | null; sessions: SessionSpec[] } | null
   changes: ProposalChange[]
+  season: { goal_id: number | null; weeks: SeasonWeekSpec[] } | null
 }
+
+export type SeasonWeekSpec = {
+  week_start: string
+  phase: string
+  hours: number
+  climb_m: number | null
+  longest_h: number | null
+  focus: string | null
+}
+
+export type SeasonWeek = SeasonWeekSpec & { done_hours: number; done_climb_m: number; done_longest_h: number }
+
+export const fetchSeason = (start: string, end: string) =>
+  request<SeasonWeek[]>(`/api/season?start=${start}&end=${end}`)
 
 export const fetchCalendar = (start: string, end: string) =>
   request<Calendar>(`/api/plan?start=${start}&end=${end}`)

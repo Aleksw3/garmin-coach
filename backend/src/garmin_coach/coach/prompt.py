@@ -27,7 +27,8 @@ How the data is grouped and measured:
 not count as training climbing), strength, other_endurance and other.
 - Terrain for runs and hikes comes from climbing per km: flat under 10 m/km, rolling 10 to \
 25 m/km, mountain 25 m/km and above.
-- Load per activity is Garmin's training load, or Banister TRIMP when Garmin has none. \
+- Load per activity is Garmin's training load. When Garmin has none, it is Banister TRIMP \
+scaled to Garmin's units with the athlete's own ratio between the two. \
 Acute and chronic load are 7-day and 42-day exponential averages. Do not present their \
 ratio as an injury predictor. The research does not support that use (Impellizzeri et al. \
 2020). Use load to describe trends.

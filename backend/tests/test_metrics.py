@@ -11,6 +11,7 @@ from garmin_coach.metrics.load import (
     activity_load,
     athlete_heart_rates,
     banister_trimp,
+    garmin_load_per_trimp,
     load_series,
 )
 from garmin_coach.metrics.recovery import baseline_status
@@ -70,6 +71,19 @@ def test_profile_max_hr_wins_over_a_spike_in_the_data(session: Session) -> None:
     session.add(AthleteProfile(id=1, max_hr=188))
     session.flush()
     assert athlete_heart_rates(session, MONDAY) == (60.0, 188.0)
+
+
+def test_trimp_is_scaled_to_the_athletes_garmin_load() -> None:
+    trimp = banister_trimp(3600, 150, 50, 190, 1.92)
+    assert trimp is not None
+    with_both = [Activity(training_load=2 * trimp, duration_s=3600, avg_hr=150) for _ in range(10)]
+    ski_without_garmin_load = Activity(training_load=None, duration_s=3600, avg_hr=150)
+
+    scale = garmin_load_per_trimp(with_both, 50, 190, 1.92)
+
+    assert scale == pytest.approx(2.0)
+    assert garmin_load_per_trimp(with_both[:9], 50, 190, 1.92) == 1.0
+    assert activity_load(ski_without_garmin_load, 50, 190, 1.92, scale) == pytest.approx(2 * trimp)
 
 
 def test_load_series_reacts_faster_in_the_acute_average() -> None:

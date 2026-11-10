@@ -2,6 +2,7 @@ import math
 from collections import defaultdict
 from dataclasses import dataclass
 from datetime import date, timedelta
+from statistics import median
 
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
@@ -12,6 +13,7 @@ ACUTE_DAYS = 7
 CHRONIC_DAYS = 42
 MAX_HR_LOOKBACK_DAYS = 365
 DEFAULT_RESTING_HR = 60.0
+MIN_ACTIVITIES_FOR_SCALE = 10
 
 
 @dataclass
@@ -37,14 +39,31 @@ def banister_trimp(
 
 
 def activity_load(
-    activity: Activity, resting_hr: float, max_hr: float, trimp_coefficient: float
+    activity: Activity,
+    resting_hr: float,
+    max_hr: float,
+    trimp_coefficient: float,
+    garmin_load_per_trimp: float = 1.0,
 ) -> float:
     if activity.training_load is not None:
         return activity.training_load
     trimp = banister_trimp(
         activity.duration_s, activity.avg_hr, resting_hr, max_hr, trimp_coefficient
     )
-    return trimp or 0.0
+    return (trimp or 0.0) * garmin_load_per_trimp
+
+
+def garmin_load_per_trimp(
+    activities: list[Activity], resting_hr: float, max_hr: float, trimp_coefficient: float
+) -> float:
+    ratios = []
+    for activity in activities:
+        trimp = banister_trimp(
+            activity.duration_s, activity.avg_hr, resting_hr, max_hr, trimp_coefficient
+        )
+        if activity.training_load and trimp:
+            ratios.append(activity.training_load / trimp)
+    return median(ratios) if len(ratios) >= MIN_ACTIVITIES_FOR_SCALE else 1.0
 
 
 def exponential_average(previous: float, value: float, days: int) -> float:
@@ -88,9 +107,13 @@ def training_load(
     if earliest is None:
         return load_series({}, first, last)
     resting_hr, max_hr = athlete_heart_rates(session, last)
+    activities = list(session.scalars(select(Activity).where(Activity.local_date <= last)))
+    scale = garmin_load_per_trimp(activities, resting_hr, max_hr, trimp_coefficient)
     loads: dict[date, float] = defaultdict(float)
-    for activity in session.scalars(select(Activity).where(Activity.local_date <= last)):
-        loads[activity.local_date] += activity_load(activity, resting_hr, max_hr, trimp_coefficient)
+    for activity in activities:
+        loads[activity.local_date] += activity_load(
+            activity, resting_hr, max_hr, trimp_coefficient, scale
+        )
     series = load_series(loads, min(earliest, first), last)
     return [entry for entry in series if entry.day >= first]
 

@@ -103,7 +103,7 @@ Coaching tables:
 
 Load across sports:
 
-- The per-activity load is Garmin's training load when present. Otherwise it is Banister TRIMP from HR.
+- The per-activity load is Garmin's training load when present. Otherwise it is Banister TRIMP from HR, multiplied by the median ratio of Garmin load to TRIMP over the athlete's activities that have both. With fewer than 10 such activities the TRIMP is used as it is.
 - Acute and chronic load are exponentially weighted averages over 7 and 42 days, shown as trends.
 - The acute:chronic ratio is not presented as an injury predictor. Impellizzeri et al. (2020) describe conceptual and statistical problems with it, so the app shows the load trend and big week-to-week jumps instead.
 

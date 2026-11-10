@@ -7,7 +7,7 @@ from sqlalchemy import select
 
 from garmin_coach.api.profile import SessionDep
 from garmin_coach.metrics.compliance import match_all
-from garmin_coach.metrics.zones import hr_zones, latest_test, weekly_zone_seconds
+from garmin_coach.metrics.zones import hr_zones, latest_test, retest_due, weekly_zone_seconds
 from garmin_coach.models import Activity, ThresholdTest
 from garmin_coach.normalize.sports import OTHER, sport_groups
 from garmin_coach.reports import week_start
@@ -49,6 +49,7 @@ class ZonesOut(BaseModel):
     current: TestOut | None
     zones: list[ZoneOut]
     tests: list[TestOut]
+    retest_due: bool
 
 
 class ZoneWeekOut(BaseModel):
@@ -67,6 +68,7 @@ def zones_out(session: SessionDep) -> ZonesOut:
         if current is None
         else [ZoneOut(**vars(zone)) for zone in hr_zones(current.lt1_hr, current.lt2_hr)],
         tests=[TestOut.model_validate(test) for test in tests],
+        retest_due=current is not None and retest_due(current, date.today()),
     )
 
 

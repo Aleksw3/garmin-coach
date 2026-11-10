@@ -623,7 +623,7 @@ export type ThresholdTest = ThresholdTestInput & { id: number }
 
 export type HrZone = { number: number; name: string; low: number | null; high: number | null }
 
-export type Zones = { current: ThresholdTest | null; zones: HrZone[]; tests: ThresholdTest[] }
+export type Zones = { current: ThresholdTest | null; zones: HrZone[]; tests: ThresholdTest[]; retest_due: boolean }
 
 export type ZoneWeek = { week_start: string; seconds: number[] }
 

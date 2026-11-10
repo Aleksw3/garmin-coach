@@ -181,6 +181,11 @@ export function ZonesCard() {
             LT1 {current.lt1_hr} and LT2 {current.lt2_hr} bpm, {METHODS[current.method].toLowerCase()} on{' '}
             {shortDate(current.day)}. Zone 1 ends at 90% of LT1 and zone 4 at 5% above LT2.
           </p>
+          {data.retest_due && (
+            <p className="text-xs text-secondary">
+              That test is more than 8 weeks old. Thresholds move with fitness, so test again to keep the zones right.
+            </p>
+          )}
           <button type="button" onClick={() => setEditing(true)} className="text-sm text-accent">
             Add a new test
           </button>

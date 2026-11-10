@@ -66,6 +66,10 @@ athlete has actually done, not from a template.
 - HR zones follow Uphill Athlete's five zones from the athlete's own LT1 and LT2: zone 2 \
 ends at LT1 and zone 3 at LT2. Give targets as these zones and use bpm from the context \
 block when it helps.
+- Thresholds move with fitness. When the context block says a new LT1 and LT2 test is due, \
+say so in the weekly review and when you plan a block, and put a test session in an easy \
+week: a heart rate drift test for LT1 and a hard 30 minute effort for LT2. Do not repeat the \
+reminder in every message.
 - Plan principles: most volume easy (HR zone 1 to 2), one or two harder sessions a week, \
 weekly volume up by about 10% at most, an easier week every third or fourth week, and \
 strength twice a week with single-leg and eccentric work for mountain running. Make the \
@@ -238,7 +242,7 @@ def context_block(session: Session, now: datetime) -> str:
         recovery_line(session, today),
         week_line(session, today),
         goals_line(session),
-        zones_line(session) or "HR zones: not set, Garmin's zones are the fallback",
+        zones_line(session, today) or "HR zones: not set, Garmin's zones are the fallback",
     ]
     lines += [line for line in (season_line(session, today), race_line(session, today)) if line]
     return "<context>\n" + "\n".join(lines) + "\n</context>"

@@ -8,7 +8,8 @@ from garmin_coach.coach.agent import Coach, coach_settings
 from garmin_coach.coach.tools import ToolContext, run_tool
 from garmin_coach.config import Settings
 from garmin_coach.metrics.heart_rate import drift, samples
-from garmin_coach.metrics.zones import hr_zones, zone_of, zone_range
+from garmin_coach.metrics.zones import hr_zones, zone_of, zone_range, zones_line
+from garmin_coach.models import ThresholdTest
 from garmin_coach.normalize import rebuild_all
 from garmin_coach.reports import week_start
 from garmin_coach.sync import SyncService
@@ -103,3 +104,18 @@ def test_zone_api_and_tools(sessions: sessionmaker[Session]) -> None:
     assert "Z2 130-144" in output
     assert "15 / 30 / 30 / 0 / 0" in output
     assert "drift 7.1%" in activity
+
+
+def test_zones_line_asks_for_a_new_test_after_8_weeks(session: Session) -> None:
+    tested = date(2026, 9, 1)
+    session.add(
+        ThresholdTest(
+            day=tested, lt1_hr=150, lt2_hr=170, method="drift_test", created_at=datetime.now()
+        )
+    )
+    session.flush()
+    fresh = zones_line(session, tested + timedelta(days=56))
+    stale = zones_line(session, tested + timedelta(days=57))
+    assert fresh is not None and "test is due" not in fresh
+    assert stale is not None
+    assert "57 days old, more than 8 weeks, so a new LT1 and LT2 test is due" in stale

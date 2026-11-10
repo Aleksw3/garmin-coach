@@ -11,6 +11,7 @@ from garmin_coach.reports import week_start
 ZONE_NAMES = ("Recovery", "Aerobic base", "Tempo", "Threshold", "Max")
 ZONE_TWO_SHARE_OF_LT1 = 0.9
 ZONE_FOUR_ABOVE_LT2 = 1.05
+RETEST_AFTER_DAYS = 56
 
 
 @dataclass(frozen=True)
@@ -63,14 +64,26 @@ def current_zones(session: Session) -> list[Zone] | None:
     return None if test is None else hr_zones(test.lt1_hr, test.lt2_hr)
 
 
-def zones_line(session: Session) -> str | None:
+def retest_due(test: ThresholdTest, today: date) -> bool:
+    return (today - test.day).days > RETEST_AFTER_DAYS
+
+
+def zones_line(session: Session, today: date | None = None) -> str | None:
     test = latest_test(session)
     if test is None:
         return None
+    stale = (
+        f". That test is {(today - test.day).days} days old, more than "
+        f"{RETEST_AFTER_DAYS // 7} weeks, so a new LT1 and LT2 test is due"
+        if today is not None and retest_due(test, today)
+        else ""
+    )
     ranges = ", ".join(
         f"Z{zone.number} {zone_range(zone)}" for zone in hr_zones(test.lt1_hr, test.lt2_hr)
     )
-    return f"HR zones from LT1 {test.lt1_hr} and LT2 {test.lt2_hr} ({test.day}): {ranges} bpm"
+    return (
+        f"HR zones from LT1 {test.lt1_hr} and LT2 {test.lt2_hr} ({test.day}): {ranges} bpm{stale}"
+    )
 
 
 def activity_zone_seconds(session: Session, activity_id: int, zones: list[Zone]) -> list[float]:

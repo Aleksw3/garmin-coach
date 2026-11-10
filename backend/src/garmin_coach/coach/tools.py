@@ -506,7 +506,7 @@ def get_profile(ctx: ToolContext, _args: ToolInput) -> str:
     lines = profile_text(ctx.session.get(AthleteProfile, 1))
     lines.append(f"Activities in the database: {first} to {last}")
     lines.append(f"Last Garmin sync: {get_state(ctx.session, LAST_SYNC) or 'never'}")
-    lines.append(zones_line(ctx.session) or "HR zones: not set")
+    lines.append(zones_line(ctx.session, ctx.today) or "HR zones: not set")
     return "\n".join(lines)
 
 

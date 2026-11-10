@@ -86,6 +86,10 @@ class RunWeekOut(BaseModel):
     rolling_h: float
     mountain_h: float
     back_to_back_long_days: int
+    descent_on_foot_m: float
+    biggest_descent_m: float
+    descent_ratio: float | None
+    descent_jump: bool
 
 
 class StrengthWeekOut(BaseModel):

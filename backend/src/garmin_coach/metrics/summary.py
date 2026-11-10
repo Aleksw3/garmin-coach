@@ -2,9 +2,10 @@ from datetime import date, timedelta
 
 from sqlalchemy.orm import Session
 
+from garmin_coach.course import describe, goal_course
 from garmin_coach.metrics.load import training_load
 from garmin_coach.metrics.recovery import hrv_baseline, resting_hr_baseline
-from garmin_coach.metrics.running import run_weeks
+from garmin_coach.metrics.running import RunWeek, run_weeks
 from garmin_coach.metrics.strength import (
     best_one_rep_max,
     effective_sets,
@@ -51,6 +52,15 @@ def recovery_lines(session: Session, last: date) -> list[str]:
     return lines
 
 
+def descent_note(week: RunWeek) -> str:
+    if not week.descent_jump or week.descent_ratio is None:
+        return ""
+    return (
+        f", which is {week.descent_ratio:.1f} times the mean of the 4 weeks before "
+        f"({week.descent_baseline_m:.0f} m), a big jump in downhill load"
+    )
+
+
 def running_lines(session: Session, first_week: date, last_week: date) -> list[str]:
     lines = ["Running (terrain hours: flat / rolling / mountain)"]
     for week in run_weeks(session, first_week, last_week):
@@ -60,8 +70,14 @@ def running_lines(session: Session, first_week: date, last_week: date) -> list[s
             f"{week.hours:.1f} h, {week.elevation_gain_m:.0f} m up, "
             f"{week.elevation_loss_m:.0f} m down, longest {week.longest_run_h:.1f} h, "
             f"terrain {terrain['flat']:.1f} / {terrain['rolling']:.1f} / "
-            f"{terrain['mountain']:.1f}, back-to-back long days {week.back_to_back_long_days}"
+            f"{terrain['mountain']:.1f}, back-to-back long days {week.back_to_back_long_days}, "
+            f"descent on foot with hikes {week.descent_on_foot_m:.0f} m, "
+            f"biggest in one activity {week.biggest_descent_m:.0f} m" + descent_note(week)
         )
+    found = goal_course(session)
+    if found is not None:
+        goal, row = found
+        lines.append(f"  The course of {goal.title} has {describe(row).loss_m:.0f} m of descent")
     return lines
 
 

@@ -112,9 +112,12 @@ function TrendCharts({ trends, weeksShown }: { trends: Trends; weeksShown: numbe
         />
       </Card>
 
-      <Card title="Running weeks" subtitle="Terrain from climb per km: flat under 10 m, rolling 10 to 25 m, mountain above" className="lg:col-span-2">
+      <Card
+        title="Running weeks"
+        subtitle="Terrain from climb per km: flat under 10 m, rolling 10 to 25 m, mountain above. Descent on foot counts hikes too, and a week with 1000 m or more that is 1.5 times the 4 weeks before is marked as a jump, which is a rule of thumb"
+        className="lg:col-span-2">
         <DataTable
-          columns={['Week from', 'Runs', 'km', 'Hours', 'm up', 'm down', 'Longest', 'Flat h', 'Rolling h', 'Mountain h', 'Back-to-back long days']}
+          columns={['Week from', 'Runs', 'km', 'Hours', 'm up', 'm down', 'Longest', 'Flat h', 'Rolling h', 'Mountain h', 'Back-to-back long days', 'Descent on foot', 'Biggest descent']}
           rows={trends.run_weeks.map((w) => [
             shortDate(w.week_start),
             w.runs,
@@ -127,6 +130,10 @@ function TrendCharts({ trends, weeksShown }: { trends: Trends; weeksShown: numbe
             number(w.rolling_h, 1),
             number(w.mountain_h, 1),
             w.back_to_back_long_days,
+            w.descent_jump && w.descent_ratio !== null
+              ? `${number(w.descent_on_foot_m)} m, jump of ${number(w.descent_ratio, 1)} times`
+              : `${number(w.descent_on_foot_m)} m`,
+            `${number(w.biggest_descent_m)} m`,
           ])}
         />
       </Card>

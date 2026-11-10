@@ -197,6 +197,10 @@ def trends(
                 rolling_h=week.hours_by_terrain.get("rolling", 0.0),
                 mountain_h=week.hours_by_terrain.get("mountain", 0.0),
                 back_to_back_long_days=week.back_to_back_long_days,
+                descent_on_foot_m=week.descent_on_foot_m,
+                biggest_descent_m=week.biggest_descent_m,
+                descent_ratio=week.descent_ratio,
+                descent_jump=week.descent_jump,
             )
             for week in run_weeks(session, first_week, last_week)
         ],

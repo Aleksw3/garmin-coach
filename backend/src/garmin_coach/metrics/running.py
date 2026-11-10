@@ -13,6 +13,9 @@ FLAT_MAX_CLIMB_PER_KM = 10.0
 ROLLING_MAX_CLIMB_PER_KM = 25.0
 LONG_DAY_S = 90 * 60
 TIME_ON_FEET_GROUPS = ("run", "vertical")
+DESCENT_BASELINE_WEEKS = 4
+DESCENT_JUMP_RATIO = 1.5
+DESCENT_JUMP_MIN_M = 1000.0
 
 
 def climb_per_km(elevation_gain_m: float | None, distance_m: float | None) -> float | None:
@@ -43,6 +46,24 @@ class RunWeek:
     biggest_climb_m: float = 0.0
     hours_by_terrain: dict[str, float] = field(default_factory=lambda: defaultdict(float))
     back_to_back_long_days: int = 0
+    descent_on_foot_m: float = 0.0
+    biggest_descent_m: float = 0.0
+    descent_baseline_m: float | None = None
+
+    @property
+    def descent_ratio(self) -> float | None:
+        if not self.descent_baseline_m:
+            return None
+        return self.descent_on_foot_m / self.descent_baseline_m
+
+    @property
+    def descent_jump(self) -> bool:
+        ratio = self.descent_ratio
+        return (
+            ratio is not None
+            and ratio >= DESCENT_JUMP_RATIO
+            and self.descent_on_foot_m >= DESCENT_JUMP_MIN_M
+        )
 
 
 def long_days(activities: list[Activity]) -> set[date]:
@@ -54,26 +75,30 @@ def long_days(activities: list[Activity]) -> set[date]:
 
 def run_weeks(session: Session, first_week: date, last_week: date) -> list[RunWeek]:
     groups = sport_groups(session)
+    baseline_from = first_week - timedelta(weeks=DESCENT_BASELINE_WEEKS)
     activities = [
         a
         for a in session.scalars(
             select(Activity).where(
-                Activity.local_date >= first_week,
+                Activity.local_date >= baseline_from,
                 Activity.local_date < last_week + timedelta(days=7),
             )
         )
         if groups.get(a.type_key) in TIME_ON_FEET_GROUPS
     ]
     weeks: dict[date, RunWeek] = {}
-    day = first_week
+    day = baseline_from
     while day <= last_week:
         weeks[day] = RunWeek(day)
         day += timedelta(weeks=1)
 
     for activity in activities:
+        week = weeks[week_start(activity.local_date)]
+        loss = activity.elevation_loss_m or 0
+        week.descent_on_foot_m += loss
+        week.biggest_descent_m = max(week.biggest_descent_m, loss)
         if groups.get(activity.type_key) != "run":
             continue
-        week = weeks[week_start(activity.local_date)]
         hours = (activity.duration_s or 0) / 3600
         week.runs += 1
         week.distance_km += (activity.distance_m or 0) / 1000
@@ -90,4 +115,8 @@ def run_weeks(session: Session, first_week: date, last_week: date) -> list[RunWe
     for day in long:
         if day - timedelta(days=1) in long:
             weeks[week_start(day)].back_to_back_long_days += 1
-    return list(weeks.values())
+    ordered = list(weeks.values())
+    for index in range(DESCENT_BASELINE_WEEKS, len(ordered)):
+        before = ordered[index - DESCENT_BASELINE_WEEKS : index]
+        ordered[index].descent_baseline_m = sum(w.descent_on_foot_m for w in before) / len(before)
+    return ordered[DESCENT_BASELINE_WEEKS:]

@@ -73,6 +73,12 @@ technical descents, back-to-back long days, and hiking with poles where the race
 - When a goal has an uploaded course, read it with get_course before you plan for that race. \
 Match the long climbs and descents in training: climbs of about the same length and \
 gradient, and descents of about the same drop.
+- Downhill running loads the legs eccentrically and causes most of the muscle damage in \
+mountain races. get_running_weeks gives the descent on foot per week and flags a week with \
+at least 1000 m of descent and 1.5 times the mean of the 4 weeks before. That threshold is a \
+rule of thumb, not a study result. Build descent step by step, treat a flagged week as a \
+reason for sore legs and an easier start to the next week, and before a race with long \
+descents build the biggest descent of one day toward the longest descents of the course.
 - For questions about finish time, pacing or cutoffs, use get_race_projection. Give the \
 range, say that it is a rough estimate and name what it leaves out. Compare the arrival \
 times with the cutoffs on the goal and say which aid stations are tight.

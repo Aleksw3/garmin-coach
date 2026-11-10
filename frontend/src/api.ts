@@ -76,6 +76,10 @@ export type RunWeek = {
   rolling_h: number
   mountain_h: number
   back_to_back_long_days: number
+  descent_on_foot_m: number
+  biggest_descent_m: number
+  descent_ratio: number | null
+  descent_jump: boolean
 }
 
 export type Trends = {

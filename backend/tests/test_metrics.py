@@ -25,6 +25,7 @@ from garmin_coach.metrics.strength import (
     mark_warmups,
     sets_per_muscle,
 )
+from garmin_coach.metrics.summary import running_lines
 from garmin_coach.models import Activity, AthleteProfile, StrengthSetOverride
 from garmin_coach.normalize import rebuild_all
 from tests.garmin_data import activity_summary, exercise_sets
@@ -259,3 +260,24 @@ def test_commutes_are_rides_between_the_two_most_visited_places(session: Session
     session.get_one(Activity, 1).commute_override = False
     tag_commutes(session)
     assert session.get_one(Activity, 1).is_commute is False
+
+
+def test_run_weeks_flag_a_jump_in_descent(session: Session) -> None:
+    summaries = [
+        activity_summary(1, "2026-09-23 09:00:00", elevation_gain_m=400),
+        activity_summary(2, "2026-10-07 09:00:00", type_key="hiking", elevation_gain_m=1200),
+        activity_summary(3, "2026-10-20 09:00:00", elevation_gain_m=300),
+        activity_summary(4, "2026-10-24 09:00:00", type_key="hiking", elevation_gain_m=1500),
+    ]
+    for summary in summaries:
+        raw_store.put_activity(session, summary["activityId"], "summary", summary)
+    rebuild_all(session)
+
+    week = run_weeks(session, MONDAY, MONDAY)[0]
+
+    assert week.descent_on_foot_m == 1800
+    assert week.biggest_descent_m == 1500
+    assert week.descent_baseline_m == 400
+    assert week.descent_ratio == 4.5
+    assert week.descent_jump
+    assert "a big jump in downhill load" in "\n".join(running_lines(session, MONDAY, MONDAY))

@@ -231,7 +231,7 @@ The layout is mobile-first, since the phone over VPN is the main client. Dark mo
 - The `data/` volume (SQLite, Garmin tokens, backups) is on the USB SSD.
 - Secrets: the Anthropic key is saved on the Settings page in `data/research.db`, which only the owner can read, or in a `.env` file outside git. Garmin passwords go straight to Garmin from the setup form or `coach login`, and only the tokens are kept per profile.
 - No app login. The VPN is the only access control, and both users may see each other's data.
-- A nightly job runs `sqlite3 .backup`, keeps 14 days, and copies the latest backup to the laptop or NAS.
+- A nightly job copies every database with SQLite's backup API into `data/backups/<date>/` and keeps 14 days. `BACKUP_DIR` moves the folder to another disk or a NAS mount. To restore, stop the service and copy a dated folder's files back over `data/`.
 - `/health` reports the last successful sync and the last job runs.
 
 ## Repo layout

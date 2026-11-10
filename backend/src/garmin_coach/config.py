@@ -33,6 +33,13 @@ class Settings(BaseSettings):
     evidence_day: str = "mon"
     evidence_time: str = "07:00"
     monthly_budget_usd: float = 5.0
+    backup_dir: Path | None = None
+    backup_time: str = "03:30"
+    backup_keep_days: int = 14
+
+    @property
+    def backup_path(self) -> Path:
+        return self.backup_dir or self.data_dir / "backups"
 
     @property
     def single_database_path(self) -> Path:

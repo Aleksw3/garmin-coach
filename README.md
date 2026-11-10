@@ -74,6 +74,7 @@ The app covers the setup, but these still work from `backend/`. With one profile
 | `coach -p kari weeks --weeks 4` | prints weekly distance, time and climbing per sport group |
 | `coach -p kari metrics` | prints load, HRV and resting HR against their baselines |
 | `coach -p kari status` | prints counts, the last sync runs and unmapped activity types |
+| `coach backup` | copies every database to a dated folder in the backup folder, as the nightly job does |
 | `coach -p kari rebuild` | rebuilds the core tables from the stored raw JSON |
 | `coach -p kari structure-sessions` | splits old planned session texts into steps and exercises |
 | `coach profile adopt kari` | moves the old single-person `data/coach.db` into a profile |
@@ -97,6 +98,8 @@ All settings are optional. Put them in `.env` at the repo root or in the environ
 | `NTFY_URL`, `NTFY_TOKEN` | `https://ntfy.sh`, none | a self-hosted ntfy server |
 | `APP_URL` | none | the address a tap on a notification opens |
 | `DATA_DIR` | `data/` | where databases and Garmin tokens live |
+| `BACKUP_TIME`, `BACKUP_KEEP_DAYS` | `03:30`, 14 | when the nightly backup runs and how many days it keeps |
+| `BACKUP_DIR` | `data/backups/` | where the backups go; point it at another disk or a NAS mount to survive a dead disk |
 | `GARMIN_REQUEST_DELAY` | 2 | seconds between Garmin requests |
 
 Each profile keeps its database and Garmin tokens in `data/profiles/<name>/`. The research library, the API key and the budget are in `data/research.db`, which only your user can read. `data/` is in `.gitignore` because it holds tokens and personal data.

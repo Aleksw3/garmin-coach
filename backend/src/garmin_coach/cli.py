@@ -11,6 +11,7 @@ from sqlalchemy import func, select
 from sqlalchemy.orm import Session, sessionmaker
 
 from garmin_coach import raw_store
+from garmin_coach.backup import backup_all
 from garmin_coach.claude_settings import read_claude_settings
 from garmin_coach.config import get_settings
 from garmin_coach.garmin.connect import GarminConnectSource
@@ -252,6 +253,10 @@ def command_rewrite_takeaways(args: argparse.Namespace) -> None:
     print(f"Rewrote {rewritten} takeaways")
 
 
+def command_backup(args: argparse.Namespace) -> None:
+    print(f"Backed up the databases to {backup_all(get_settings())}")
+
+
 def command_serve(args: argparse.Namespace) -> None:
     import uvicorn
 
@@ -275,8 +280,10 @@ def command_serve(args: argparse.Namespace) -> None:
             settings.evidence_day,
             settings.evidence_time,
             settings.watch_time,
+            settings.backup_time,
         ),
         household=household,
+        backup=lambda: backup_all(settings),
     )
     uvicorn.run(app, host=args.host, port=args.port)
 
@@ -346,6 +353,9 @@ def build_parser() -> argparse.ArgumentParser:
         help="write new takeaways for every research paper, replacing edited ones too",
     )
     takeaways.set_defaults(run=command_rewrite_takeaways)
+
+    backup = commands.add_parser("backup", help="copy every database to the backup folder")
+    backup.set_defaults(run=command_backup)
 
     status = commands.add_parser("status", help="database and sync status")
     status.set_defaults(run=command_status)

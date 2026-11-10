@@ -1,4 +1,4 @@
-from collections.abc import AsyncIterator
+from collections.abc import AsyncIterator, Callable
 from contextlib import asynccontextmanager
 from pathlib import Path
 
@@ -31,6 +31,7 @@ def create_app(
     evidence_fetcher: EvidenceFetcher | None = None,
     household: Household | None = None,
     garmin_login: GarminWebLogin | None = None,
+    backup: Callable[[], object] | None = None,
 ) -> FastAPI:
     @asynccontextmanager
     async def lifespan(app: FastAPI) -> AsyncIterator[None]:
@@ -42,6 +43,7 @@ def create_app(
                 ],
                 schedule,
                 app.state.evidence_fetcher,
+                backup,
             )
             if schedule_sync
             else None

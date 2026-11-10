@@ -94,6 +94,7 @@ class Schedule:
     evidence_day: str = "mon"
     evidence_time: str = "07:00"
     watch_time: str = "20:00"
+    backup_time: str = "03:30"
 
 
 DEFAULT_SCHEDULE = Schedule()
@@ -159,10 +160,14 @@ def start_scheduler(
     profiles: list[ScheduledProfile],
     schedule: Schedule = DEFAULT_SCHEDULE,
     fetcher: EvidenceFetcher | None = None,
+    backup: Callable[[], object] | None = None,
 ) -> BackgroundScheduler:
     scheduler = BackgroundScheduler()
     for index, profile in enumerate(profiles):
         schedule_profile(scheduler, profile, index, schedule)
+    if backup is not None:
+        hour, minute = hour_minute(schedule.backup_time)
+        scheduler.add_job(backup, "cron", hour=hour, minute=minute, id="backup")
     if fetcher is not None:
         hour, minute = hour_minute(schedule.evidence_time)
         scheduler.add_job(

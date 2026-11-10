@@ -7,7 +7,12 @@ from sqlalchemy.orm import Session
 
 from garmin_coach import raw_store
 from garmin_coach.metrics.commute import tag_commutes
-from garmin_coach.metrics.load import activity_load, banister_trimp, load_series
+from garmin_coach.metrics.load import (
+    activity_load,
+    athlete_heart_rates,
+    banister_trimp,
+    load_series,
+)
 from garmin_coach.metrics.recovery import baseline_status
 from garmin_coach.metrics.running import climb_per_km, run_weeks, terrain
 from garmin_coach.metrics.strength import (
@@ -19,7 +24,7 @@ from garmin_coach.metrics.strength import (
     mark_warmups,
     sets_per_muscle,
 )
-from garmin_coach.models import Activity, StrengthSetOverride
+from garmin_coach.models import Activity, AthleteProfile, StrengthSetOverride
 from garmin_coach.normalize import rebuild_all
 from tests.garmin_data import activity_summary, exercise_sets
 
@@ -46,6 +51,25 @@ def test_activity_load_prefers_garmin_load() -> None:
 
     assert activity_load(with_garmin_load, 50, 190, 1.92) == 80.0
     assert activity_load(without, 50, 190, 1.92) > 0
+
+
+def test_profile_max_hr_wins_over_a_spike_in_the_data(session: Session) -> None:
+    session.add(
+        Activity(
+            id=1,
+            type_key="running",
+            start_time_local=datetime(2026, 10, 19, 7),
+            start_time_gmt=datetime(2026, 10, 19, 5),
+            local_date=MONDAY,
+            max_hr=231.0,
+        )
+    )
+    session.flush()
+    assert athlete_heart_rates(session, MONDAY) == (60.0, 231.0)
+
+    session.add(AthleteProfile(id=1, max_hr=188))
+    session.flush()
+    assert athlete_heart_rates(session, MONDAY) == (60.0, 188.0)
 
 
 def test_load_series_reacts_faster_in_the_acute_average() -> None:

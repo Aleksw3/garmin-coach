@@ -71,7 +71,8 @@ def athlete_heart_rates(session: Session, as_of: date) -> tuple[float, float]:
             DailyWellness.day > as_of - timedelta(days=60), DailyWellness.day <= as_of
         )
     )
-    maximum = session.scalar(
+    profile = session.get(AthleteProfile, 1)
+    maximum = (profile.max_hr if profile else None) or session.scalar(
         select(func.max(Activity.max_hr)).where(
             Activity.local_date > as_of - timedelta(days=MAX_HR_LOOKBACK_DAYS),
             Activity.local_date <= as_of,

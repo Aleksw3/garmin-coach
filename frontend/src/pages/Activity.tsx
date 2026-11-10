@@ -5,9 +5,11 @@ import {
   editSet,
   fetchActivity,
   fetchZones,
+  logFuel,
   rateActivity,
   restoreSet,
   type ActivityDetail,
+  type Fuel,
   type Rating,
   type StrengthSetRow,
 } from '../api'
@@ -425,6 +427,65 @@ function RatingCard({ activity }: { activity: ActivityDetail }) {
   )
 }
 
+const NO_FUEL: Fuel = { carbs_g: null, fluid_ml: null, gut: null, note: null }
+const LONG_ENOUGH_TO_FUEL_S = 60 * 60
+
+function perHour(amount: number | null, seconds: number | null): string {
+  return amount === null || !seconds ? '' : `${number(amount / (seconds / 3600))} per hour`
+}
+
+function FuelCard({ activity }: { activity: ActivityDetail }) {
+  const queryClient = useQueryClient()
+  const [fuel, setFuel] = useState<Fuel>(activity.fuel ?? NO_FUEL)
+  const save = useMutation({
+    mutationFn: (next: Fuel) => logFuel(activity.id, next),
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ['activity', activity.id] }),
+  })
+  const input = 'w-full rounded-lg border border-line bg-page px-2 py-1.5 text-base text-primary sm:text-sm'
+  const amount = (key: 'carbs_g' | 'fluid_ml', label: string) => (
+    <label className="block text-xs text-muted">
+      <span className="mb-1 block">
+        {label} {perHour(fuel[key], activity.duration_s)}
+      </span>
+      <input
+        type="number"
+        min={0}
+        inputMode="numeric"
+        className={input}
+        value={fuel[key] ?? ''}
+        onChange={(event) => setFuel({ ...fuel, [key]: event.target.value === '' ? null : Number(event.target.value) })}
+        onBlur={() => save.mutate(fuel)}
+      />
+    </label>
+  )
+  const text = (key: 'gut' | 'note', label: string) => (
+    <label className="block text-xs text-muted">
+      <span className="mb-1 block">{label}</span>
+      <input
+        className={input}
+        value={fuel[key] ?? ''}
+        onChange={(event) => setFuel({ ...fuel, [key]: event.target.value })}
+        onBlur={() => save.mutate(fuel)}
+      />
+    </label>
+  )
+  return (
+    <Card title="Fueling" subtitle="What you ate and drank, so the coach can build toward race fueling">
+      <div className="space-y-3">
+        <div className="grid grid-cols-2 gap-3">
+          {amount('carbs_g', 'Carbohydrate, g')}
+          {amount('fluid_ml', 'Fluid, ml')}
+        </div>
+        {text('gut', 'Stomach problems, and when')}
+        {text('note', 'What you used, for example gels, drink mix or real food')}
+        <p className="text-xs text-muted" role="status">
+          {save.error ? save.error.message : save.isPending ? 'Saving…' : save.isSuccess ? 'Saved' : ''}
+        </p>
+      </div>
+    </Card>
+  )
+}
+
 export function ActivityPage({ id }: { id: number }) {
   const activity = useQuery({ queryKey: ['activity', id], queryFn: () => fetchActivity(id) })
   if (activity.isPending) return <p className="text-sm text-muted">Loading…</p>
@@ -457,6 +518,7 @@ export function ActivityPage({ id }: { id: number }) {
       <div className="grid gap-4 lg:grid-cols-2">
         {data.planned && <Planned planned={data.planned} />}
         <RatingCard activity={data} />
+        {(data.fuel !== null || (data.duration_s ?? 0) >= LONG_ENOUGH_TO_FUEL_S) && <FuelCard activity={data} />}
         <Zones activity={data} />
         <Drift activity={data} />
         <StrengthSets activity={data} />

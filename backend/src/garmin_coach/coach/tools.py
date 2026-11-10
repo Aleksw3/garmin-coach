@@ -24,6 +24,7 @@ from garmin_coach.coach.plan import (
 from garmin_coach.course import course_text, describe, goal_course
 from garmin_coach.evidence.library import citation, search
 from garmin_coach.garmin.workouts import find_exercises
+from garmin_coach.metrics.fueling import LONG_ENOUGH_TO_FUEL_S, fuel_text
 from garmin_coach.metrics.hills import find_hills
 from garmin_coach.metrics.load import training_load
 from garmin_coach.metrics.projection import project, projection_text
@@ -41,6 +42,7 @@ from garmin_coach.metrics.zones import (
 )
 from garmin_coach.models import (
     Activity,
+    ActivityFuel,
     ActivityLap,
     ActivityRating,
     ActivityZoneTime,
@@ -300,6 +302,11 @@ def get_activity(ctx: ToolContext, args: ActivityId) -> str:
         if felt
         else "The athlete has not rated how this session felt"
     )
+    fuel = fuel_text(ctx.session.get(ActivityFuel, activity.id), activity.duration_s)
+    if fuel:
+        lines.append(f"Fueling logged by the athlete: {fuel}")
+    elif (activity.duration_s or 0) >= LONG_ENOUGH_TO_FUEL_S:
+        lines.append("No fueling logged for this session")
     zones = ctx.session.scalars(
         select(ActivityZoneTime)
         .where(ActivityZoneTime.activity_id == activity.id)
@@ -526,6 +533,28 @@ def get_goals(ctx: ToolContext, _args: ToolInput) -> str:
             for g in goals
         )
         or "No goals set"
+    )
+
+
+def get_fueling(ctx: ToolContext, args: DateRange) -> str:
+    rows = ctx.session.execute(
+        select(Activity, ActivityFuel)
+        .join(ActivityFuel, ActivityFuel.activity_id == Activity.id)
+        .where(Activity.local_date.between(args.start, args.end))
+        .order_by(Activity.start_time_local)
+    ).all()
+    if not rows:
+        return "No fueling logged in this period. The athlete logs it on the Activity page"
+    return "\n".join(
+        joined(
+            [
+                f"{activity.local_date} activity {activity.id}",
+                activity.name or activity.type_key,
+                hours_minutes(activity.duration_s),
+                fuel_text(fuel, activity.duration_s),
+            ]
+        )
+        for activity, fuel in rows
     )
 
 
@@ -888,6 +917,13 @@ TOOLS = (
         "longest run or hike) next to what the athlete did in the weeks so far.",
         DateRange,
         get_season,
+    ),
+    Tool(
+        "get_fueling",
+        "What the athlete ate and drank in sessions where they logged it: carbohydrate and "
+        "fluid in total and per hour, and stomach problems.",
+        DateRange,
+        get_fueling,
     ),
     Tool(
         "get_strength",

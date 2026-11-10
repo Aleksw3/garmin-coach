@@ -482,10 +482,15 @@ export type ActivityDetail = Activity & {
   sets: StrengthSetRow[]
   planned: { session_id: number; title: string; compliance: number | null; details: Record<string, number[]> } | null
   rating: Rating | null
+  fuel: Fuel | null
   exercise_categories: string[]
 }
 
 export type Rating = { effort: number | null; legs: number | null; pain: string | null; note: string | null }
+
+export type Fuel = { carbs_g: number | null; fluid_ml: number | null; gut: string | null; note: string | null }
+
+export const logFuel = (id: number, fuel: Fuel) => request<Fuel>(`/api/activities/${id}/fuel`, json('PUT', fuel))
 
 export const rateActivity = (id: number, rating: Rating) =>
   request<Rating>(`/api/activities/${id}/rating`, json('PUT', rating))

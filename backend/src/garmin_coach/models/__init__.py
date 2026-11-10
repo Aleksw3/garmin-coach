@@ -10,6 +10,7 @@ from garmin_coach.models.activity import (
 )
 from garmin_coach.models.coach import (
     ActivityFeedback,
+    ActivityFuel,
     ActivityRating,
     ApiUsage,
     AthleteProfile,
@@ -35,6 +36,7 @@ from garmin_coach.models.wellness import BodyComposition, DailyWellness
 __all__ = [
     "Activity",
     "ActivityFeedback",
+    "ActivityFuel",
     "ActivityHeartRate",
     "ActivityLap",
     "ActivityRating",

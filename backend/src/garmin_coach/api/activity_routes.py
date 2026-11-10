@@ -13,6 +13,7 @@ from garmin_coach.metrics.strength import MUSCLES_BY_CATEGORY
 from garmin_coach.metrics.zones import activity_zone_seconds, current_zones
 from garmin_coach.models import (
     Activity,
+    ActivityFuel,
     ActivityLap,
     ActivityRating,
     ActivityZoneTime,
@@ -88,6 +89,17 @@ class RatingOut(RatingIn):
     model_config = ConfigDict(from_attributes=True)
 
 
+class FuelIn(BaseModel):
+    carbs_g: float | None = Field(default=None, ge=0, le=5000)
+    fluid_ml: float | None = Field(default=None, ge=0, le=50000)
+    gut: str | None = Field(default=None, max_length=300)
+    note: str | None = Field(default=None, max_length=1000)
+
+
+class FuelOut(FuelIn):
+    model_config = ConfigDict(from_attributes=True)
+
+
 class ActivityDetailOut(ActivityOut):
     moving_s: float | None
     elevation_loss_m: float | None
@@ -105,6 +117,7 @@ class ActivityDetailOut(ActivityOut):
     sets: list[SetOut]
     planned: PlannedMatchOut | None
     rating: RatingOut | None
+    fuel: FuelOut | None
     exercise_categories: list[str]
     drift_first_hr: float | None
     drift_second_hr: float | None
@@ -219,6 +232,7 @@ def get_activity(session: SessionDep, activity_id: int) -> ActivityDetailOut:
         sets=strength_sets(session, activity_id),
         planned=planned_match(session, activity_id),
         rating=rating_out(session.get(ActivityRating, activity_id)),
+        fuel=fuel_out(session.get(ActivityFuel, activity_id)),
         exercise_categories=sorted(MUSCLES_BY_CATEGORY),
         drift_first_hr=activity.drift_first_hr,
         drift_second_hr=activity.drift_second_hr,
@@ -246,6 +260,24 @@ def rate_activity(session: SessionDep, activity_id: int, body: RatingIn) -> Acti
         setattr(rating, field, value or None)
     session.commit()
     return rating
+
+
+def fuel_out(fuel: ActivityFuel | None) -> FuelOut | None:
+    return None if fuel is None else FuelOut.model_validate(fuel)
+
+
+@router.put("/activities/{activity_id}/fuel", response_model=FuelOut)
+def log_fuel(session: SessionDep, activity_id: int, body: FuelIn) -> ActivityFuel:
+    find_activity(session, activity_id)
+    fuel = session.get(ActivityFuel, activity_id) or ActivityFuel(activity_id=activity_id)
+    fuel.updated_at = datetime.now()
+    fuel.carbs_g = body.carbs_g
+    fuel.fluid_ml = body.fluid_ml
+    fuel.gut = body.gut or None
+    fuel.note = body.note or None
+    session.add(fuel)
+    session.commit()
+    return fuel
 
 
 @router.post("/activities/{activity_id}/effort/{effort}", response_model=RatingOut)

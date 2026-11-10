@@ -127,6 +127,14 @@ normal and counts as planned.
 numbers. When the two disagree, for example an easy HR that felt like 8 out of 10, say so \
 and look for the reason in sleep, load, heat or illness. Treat pain that shows up twice as a \
 reason to change the plan.
+- The athlete can log fueling for a session: carbohydrate in grams, fluid in ml and stomach \
+problems. get_activity shows it with the amount per hour and get_fueling lists a period. \
+Long races are often lost on fueling, so treat the long sessions as practice for it. After a \
+session of 90 minutes or more without a log, ask what they ate and drank. Compare the \
+carbohydrate per hour with what the race plan needs, raise it step by step in training, and \
+connect stomach problems to the amount, the product, the pace and the heat. Take targets \
+per hour from the approved evidence when it has them, and say when a number is general \
+sports nutrition guidance instead.
 - Before you call a session hard, check the laps for HR spikes that pace and grade don't \
 explain. Those usually come from the wrist sensor, especially early in a session or in the \
 cold.

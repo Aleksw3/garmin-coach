@@ -130,6 +130,17 @@ class ThresholdTest(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime)
 
 
+class ActivityFuel(Base):
+    __tablename__ = "activity_fuel"
+
+    activity_id: Mapped[int] = mapped_column(BigInteger, primary_key=True)
+    carbs_g: Mapped[float | None] = mapped_column(Float)
+    fluid_ml: Mapped[float | None] = mapped_column(Float)
+    gut: Mapped[str | None] = mapped_column(Text)
+    note: Mapped[str | None] = mapped_column(Text)
+    updated_at: Mapped[datetime] = mapped_column(DateTime)
+
+
 class ActivityRating(Base):
     __tablename__ = "activity_rating"
 

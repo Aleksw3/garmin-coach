@@ -13,6 +13,7 @@ from garmin_coach.config import Settings
 from garmin_coach.metrics.compliance import match_sessions, planned_hard_minutes, target_zone
 from garmin_coach.metrics.strength import effective_sets
 from garmin_coach.models import (
+    Activity,
     ActivityHeartRate,
     Plan,
     PlannedSession,
@@ -276,3 +277,34 @@ def test_rating_is_saved_and_shown_to_the_coach(plan: sessionmaker[Session]) -> 
         )
     assert "own rating: effort 7/10, legs 4/5 (sore), pain: left knee" in detail
     assert "felt 7/10" in listing
+
+
+def test_fueling_is_saved_and_shown_to_the_coach(plan: sessionmaker[Session]) -> None:
+    def make_service() -> SyncService:
+        return SyncService(FakeGarmin([]), plan, request_delay=0, sleep=lambda _: None)
+
+    coach = Coach(plan, None, coach_settings(Settings.model_construct()))
+    client = TestClient(single_app(plan, make_service, coach, schedule_sync=False))
+
+    assert client.get("/api/activities/12").json()["fuel"] is None
+    assert client.put("/api/activities/999/fuel", json={}).status_code == 404
+    saved = client.put(
+        "/api/activities/12/fuel",
+        json={"carbs_g": 120, "fluid_ml": 1000, "gut": "nausea after 2 h", "note": ""},
+    )
+    assert saved.json() == {
+        "carbs_g": 120,
+        "fluid_ml": 1000,
+        "gut": "nausea after 2 h",
+        "note": None,
+    }
+    with plan() as session:
+        activity = session.get(Activity, 12)
+        assert activity is not None and activity.duration_s
+        hours = activity.duration_s / 3600
+        context = ToolContext(session, NOW, 1.92)
+        detail, _ = run_tool(context, "get_activity", {"activity_id": 12})
+        listing, _ = run_tool(context, "get_fueling", {"start": "2026-10-01", "end": "2026-10-30"})
+    expected = f"120 g carbohydrate ({120 / hours:.0f} per hour), 1000 ml fluid"
+    assert f"Fueling logged by the athlete: {expected}" in detail
+    assert "stomach: nausea after 2 h" in listing

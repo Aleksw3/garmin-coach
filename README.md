@@ -119,3 +119,11 @@ npm run lint
 ```
 
 `scripts/garmin_probe.py` checks that Garmin login and data pulls work on a new machine, and saves the raw JSON under `data/probe/`. `coach import-probe <dir>` loads such a dump without calling Garmin.
+
+## Disclaimer and license
+
+The coach is not medical advice. It is a language model that reads your training data, and it can be wrong. See a doctor about injuries, illness and anything else that concerns your health.
+
+This project is not affiliated with Garmin. The sync uses [python-garminconnect](https://github.com/cyberjunky/python-garminconnect), which talks to an interface Garmin has not published. Garmin can change or block that interface at any time, and its terms may not allow this kind of access. You use it with your own account at your own risk.
+
+The code is under the [MIT license](LICENSE).

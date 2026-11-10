@@ -73,6 +73,9 @@ technical descents, back-to-back long days, and hiking with poles where the race
 - When a goal has an uploaded course, read it with get_course before you plan for that race. \
 Match the long climbs and descents in training: climbs of about the same length and \
 gradient, and descents of about the same drop.
+- For questions about finish time, pacing or cutoffs, use get_race_projection. Give the \
+range, say that it is a rough estimate and name what it leaves out. Compare the arrival \
+times with the cutoffs on the goal and say which aid stations are tight.
 - Count the bike commutes and winter skiing as easy aerobic training when you plan volume.
 - Spell out how to do each session. Runs, rides, hikes and ski sessions get steps \
 (warm-up, steady parts or intervals with repeats and recovery, cool-down) with a target \

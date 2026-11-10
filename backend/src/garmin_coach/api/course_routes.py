@@ -1,9 +1,12 @@
+from datetime import date
 from typing import Any
 
 from fastapi import APIRouter, HTTPException, Request, Response
+from pydantic import BaseModel, ConfigDict
 
 from garmin_coach.api.profile import SessionDep
 from garmin_coach.course import MAX_GPX_BYTES, CourseError, as_json, describe, save_course
+from garmin_coach.metrics.projection import Projection, project
 from garmin_coach.models import Goal, GoalCourse
 
 router = APIRouter(prefix="/api")
@@ -35,6 +38,43 @@ async def put_course(session: SessionDep, goal_id: int, request: Request) -> dic
         raise HTTPException(status_code=422, detail=str(error)) from error
     session.commit()
     return as_json(describe(row))
+
+
+class ArrivalOut(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    name: str
+    km: float
+    fast_s: float
+    slow_s: float
+
+
+class ReferenceOut(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    activity_id: int
+    day: date
+    name: str | None
+    distance_km: float
+    gain_m: float
+    seconds: float
+
+
+class ProjectionOut(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    distance_km: float
+    gain_m: float
+    effort_km: float
+    fast_s: float
+    slow_s: float
+    references: list[ReferenceOut]
+    arrivals: list[ArrivalOut]
+
+
+@router.get("/goals/{goal_id}/projection", response_model=ProjectionOut | None)
+def get_projection(session: SessionDep, goal_id: int) -> Projection | None:
+    return project(session, find_goal(session, goal_id), date.today())
 
 
 @router.delete("/goals/{goal_id}/course", status_code=204)

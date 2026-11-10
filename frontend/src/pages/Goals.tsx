@@ -9,6 +9,7 @@ import {
   fetchGoals,
   fetchNotes,
   fetchProfile,
+  fetchProjection,
   saveProfile,
   updateGoal,
   uploadCourse,
@@ -17,11 +18,12 @@ import {
   type Goal,
   type GoalInput,
   type Profile,
+  type Projection,
 } from '../api'
 import { courseOption } from '../charts'
 import { Card } from '../components/Card'
 import { Chart } from '../components/Chart'
-import { number, shortDate } from '../format'
+import { duration, number, shortDate } from '../format'
 import { useTheme } from '../theme'
 
 const EMPTY_GOAL: GoalInput = {
@@ -217,6 +219,48 @@ function CourseProfile({ course }: { course: Course }) {
   )
 }
 
+function ProjectionSection({ goal, courseKey }: { goal: Goal; courseKey: string }) {
+  const projection = useQuery({
+    queryKey: ['projection', goal.id, goal.distance_km, goal.elevation_gain_m, courseKey],
+    queryFn: () => fetchProjection(goal.id),
+  })
+  const data: Projection | null | undefined = projection.data
+  if (!data) return null
+  return (
+    <details className="text-sm text-secondary">
+      <summary className="cursor-pointer">
+        Finish estimate {duration(data.fast_s)} to {duration(data.slow_s)}
+      </summary>
+      <div className="mt-1 space-y-2 text-xs">
+        <p className="text-muted">
+          A rough estimate from your {data.references.length} fastest long runs or hikes of the last 180 days, scaled to{' '}
+          {number(data.effort_km)} effort-km, where 100 m of climbing counts as 1 km. It assumes even effort and leaves out
+          technical ground, heat, night and stops.
+        </p>
+        <ul className="space-y-0.5">
+          {data.references.map((run) => (
+            <li key={run.activity_id}>
+              <a href={`#activity/${run.activity_id}`} className="text-accent">
+                {shortDate(run.day)} {run.name}
+              </a>
+              : {number(run.distance_km, 1)} km, {number(run.gain_m)} m up in {duration(run.seconds)}
+            </li>
+          ))}
+        </ul>
+        {data.arrivals.length > 0 && (
+          <ul className="space-y-0.5">
+            {data.arrivals.map((arrival) => (
+              <li key={arrival.km}>
+                {arrival.name} at km {number(arrival.km, 1)}: {duration(arrival.fast_s)} to {duration(arrival.slow_s)}
+              </li>
+            ))}
+          </ul>
+        )}
+      </div>
+    </details>
+  )
+}
+
 function CourseSection({ goal }: { goal: Goal }) {
   const queryClient = useQueryClient()
   const key = ['course', goal.id]
@@ -231,6 +275,7 @@ function CourseSection({ goal }: { goal: Goal }) {
   })
   return (
     <div className="space-y-2 pt-1">
+      <ProjectionSection goal={goal} courseKey={course.data ? `${course.data.distance_km} ${course.data.gain_m}` : ''} />
       {course.data && <CourseProfile course={course.data} />}
       <div className="flex flex-wrap items-center gap-3 text-xs">
         <label className="cursor-pointer text-accent">

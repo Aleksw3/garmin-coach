@@ -9,7 +9,8 @@ from garmin_coach.coach.agent import Coach, coach_settings
 from garmin_coach.coach.tools import ToolContext, run_tool
 from garmin_coach.config import Settings
 from garmin_coach.course import CourseError, describe, parse_gpx, save_course
-from garmin_coach.models import Goal, GoalCourse
+from garmin_coach.metrics.projection import project
+from garmin_coach.models import Activity, Goal, GoalCourse
 from garmin_coach.sync import SyncService
 from tests.apps import single_app
 from tests.garmin_data import FakeGarmin
@@ -114,3 +115,63 @@ def test_course_upload_and_delete_over_the_api(sessions: sessionmaker[Session]) 
     assert client.delete(f"/api/goals/{goal_id}").status_code == 204
     with sessions() as session:
         assert session.get(GoalCourse, goal_id) is None
+
+
+def long_run(
+    session: Session, activity_id: int, day: date, km: float, gain: float, hours: float
+) -> None:
+    session.add(
+        Activity(
+            id=activity_id,
+            name=f"Long run {activity_id}",
+            type_key="trail_running",
+            start_time_local=datetime(day.year, day.month, day.day, 8),
+            start_time_gmt=datetime(day.year, day.month, day.day, 7),
+            local_date=day,
+            duration_s=hours * 3600,
+            distance_m=km * 1000,
+            elevation_gain_m=gain,
+        )
+    )
+
+
+def test_projection_scales_a_long_run_to_the_race(session: Session) -> None:
+    today = date(2026, 11, 10)
+    goal = Goal(kind="race", title="Race", distance_km=60, elevation_gain_m=3000)
+    session.add(goal)
+    long_run(session, 1, date(2026, 10, 1), km=30, gain=1500, hours=4.5)
+    long_run(session, 2, date(2025, 10, 1), km=30, gain=1500, hours=3.0)
+    session.flush()
+    projection = project(session, goal, today)
+    assert projection is not None
+    assert projection.effort_km == 90
+    assert [r.activity_id for r in projection.references] == [1]
+    assert projection.fast_s == pytest.approx(4.5 * 3600 * 2**1.06)
+    assert projection.slow_s == pytest.approx(4.5 * 3600 * 2**1.15)
+    assert projection.arrivals == []
+
+
+def test_projection_gives_arrivals_along_the_course(session: Session) -> None:
+    row = stored(session, gpx())
+    goal = session.get(Goal, row.goal_id)
+    assert goal is not None
+    long_run(session, 1, date(2026, 10, 1), km=15, gain=500, hours=2.0)
+    session.flush()
+    projection = project(session, goal, date(2026, 11, 10))
+    assert projection is not None
+    summit, finish = projection.arrivals
+    assert summit.name == "Summit hut"
+    assert summit.fast_s == pytest.approx(projection.fast_s * 18 / 30, rel=0.02)
+    assert finish.slow_s == pytest.approx(projection.slow_s)
+    ctx = ToolContext(session=session, now=datetime(2026, 11, 10, 12), trimp_coefficient=1.92)
+    text, ok = run_tool(ctx, "get_race_projection", {})
+    assert ok
+    assert "Finish estimate" in text
+    assert "Summit hut at km 12.0" in text
+
+
+def test_no_projection_without_long_runs(session: Session) -> None:
+    goal = Goal(kind="race", title="Race", distance_km=60)
+    session.add(goal)
+    session.flush()
+    assert project(session, goal, date(2026, 11, 10)) is None

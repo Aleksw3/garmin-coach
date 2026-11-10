@@ -26,6 +26,7 @@ from garmin_coach.evidence.library import citation, search
 from garmin_coach.garmin.workouts import find_exercises
 from garmin_coach.metrics.hills import find_hills
 from garmin_coach.metrics.load import training_load
+from garmin_coach.metrics.projection import project, projection_text
 from garmin_coach.metrics.rating import rating_text
 from garmin_coach.metrics.recovery import hrv_baseline, resting_hr_baseline
 from garmin_coach.metrics.running import climb_per_km, terrain
@@ -117,7 +118,7 @@ class ActivityId(ToolInput):
 
 class GoalId(ToolInput):
     goal_id: int | None = Field(
-        default=None, description="Leave empty for the active goal with a course"
+        default=None, description="Leave empty for the main active race goal"
     )
 
 
@@ -528,6 +529,27 @@ def get_goals(ctx: ToolContext, _args: ToolInput) -> str:
     )
 
 
+def get_race_projection(ctx: ToolContext, args: GoalId) -> str:
+    goal = (
+        ctx.session.get(Goal, args.goal_id)
+        if args.goal_id is not None
+        else ctx.session.scalars(
+            select(Goal)
+            .where(Goal.status == "active", Goal.kind == "race")
+            .order_by(Goal.priority, Goal.target_date)
+        ).first()
+    )
+    if goal is None:
+        return "No such goal"
+    projection = project(ctx.session, goal, ctx.today)
+    if projection is None:
+        return (
+            f"No estimate for goal {goal.id} {goal.title}. It needs a course or a distance on "
+            "the goal, and a run or hike of 60 minutes or more in the last 180 days"
+        )
+    return "\n".join([f"goal {goal.id} {goal.title}", *projection_text(projection)])
+
+
 def get_course(ctx: ToolContext, args: GoalId) -> str:
     found = goal_course(ctx.session, args.goal_id)
     if found is None:
@@ -803,6 +825,14 @@ TOOLS = (
         "the legs between aid stations or every 10 km, and the long climbs and descents.",
         GoalId,
         get_course,
+    ),
+    Tool(
+        "get_race_projection",
+        "A rough finish time estimate for a race goal from the athlete's recent long runs "
+        "and hikes, with arrival times at each aid station or leg of an uploaded course. Use "
+        "it for pacing and to check cutoffs.",
+        GoalId,
+        get_race_projection,
     ),
     Tool(
         "get_plan",

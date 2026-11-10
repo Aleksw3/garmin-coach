@@ -272,6 +272,17 @@ export const fetchGoals = () => request<Goal[]>('/api/goals')
 export const createGoal = (goal: GoalInput) => request<Goal>('/api/goals', json('POST', goal))
 export const updateGoal = (id: number, goal: GoalInput) => request<Goal>(`/api/goals/${id}`, json('PUT', goal))
 export const deleteGoal = (id: number) => send(`/api/goals/${id}`, { method: 'DELETE' })
+export type Projection = {
+  distance_km: number
+  gain_m: number
+  effort_km: number
+  fast_s: number
+  slow_s: number
+  references: { activity_id: number; day: string; name: string | null; distance_km: number; gain_m: number; seconds: number }[]
+  arrivals: { name: string; km: number; fast_s: number; slow_s: number }[]
+}
+
+export const fetchProjection = (goalId: number) => request<Projection | null>(`/api/goals/${goalId}/projection`)
 export const fetchCourse = (goalId: number) => request<Course | null>(`/api/goals/${goalId}/course`)
 export const uploadCourse = (goalId: number, file: File) =>
   request<Course>(`/api/goals/${goalId}/course`, {

@@ -1,3 +1,4 @@
+from collections.abc import Sequence
 from datetime import date, datetime
 from typing import Any
 
@@ -6,7 +7,7 @@ from fastapi.testclient import TestClient
 from sqlalchemy.orm import Session, sessionmaker
 
 from garmin_coach.coach.agent import Coach, coach_settings
-from garmin_coach.coach.notify import Notifier
+from garmin_coach.coach.notify import Button, Notifier
 from garmin_coach.coach.plan import ProposalBody
 from garmin_coach.config import Settings
 from garmin_coach.garmin.nightly import TomorrowOnWatch
@@ -274,7 +275,9 @@ class Recording(Notifier):
         super().__init__("https://ntfy.sh", "topic")
         self.sent: list[tuple[str, str]] = []
 
-    def send(self, title: str, message: str, page: str = "#chat") -> bool:
+    def send(
+        self, title: str, message: str, page: str = "#chat", buttons: Sequence[Button] = ()
+    ) -> bool:
         self.sent.append((title, message))
         return True
 

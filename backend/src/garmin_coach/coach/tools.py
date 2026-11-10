@@ -25,6 +25,7 @@ from garmin_coach.evidence.library import citation, search
 from garmin_coach.garmin.workouts import find_exercises
 from garmin_coach.metrics.hills import find_hills
 from garmin_coach.metrics.load import training_load
+from garmin_coach.metrics.rating import rating_text
 from garmin_coach.metrics.recovery import hrv_baseline, resting_hr_baseline
 from garmin_coach.metrics.running import climb_per_km, terrain
 from garmin_coach.metrics.season import season_progress, week_targets
@@ -39,6 +40,7 @@ from garmin_coach.metrics.zones import (
 from garmin_coach.models import (
     Activity,
     ActivityLap,
+    ActivityRating,
     ActivityZoneTime,
     AthleteProfile,
     CoachNote,
@@ -213,7 +215,9 @@ def activity_group(activity: Activity, groups: dict[str, str]) -> str:
     return "commute" if activity.is_commute else groups.get(activity.type_key, OTHER)
 
 
-def activity_line(activity: Activity, groups: dict[str, str]) -> str:
+def activity_line(
+    activity: Activity, groups: dict[str, str], rating: ActivityRating | None = None
+) -> str:
     group = activity_group(activity, groups)
     climb = climb_per_km(activity.elevation_gain_m, activity.distance_m)
     return joined(
@@ -228,6 +232,7 @@ def activity_line(activity: Activity, groups: dict[str, str]) -> str:
             number(activity.avg_hr, "bpm avg"),
             number(activity.training_load, "load"),
             f"terrain {terrain(climb)}" if group in TERRAIN_GROUPS and climb is not None else None,
+            f"felt {rating.effort}/10" if rating and rating.effort is not None else None,
         ]
     )
 
@@ -246,7 +251,14 @@ def list_activities(ctx: ToolContext, args: ActivityQuery) -> str:
     header = f"{len(activities)} activities from {args.start} to {args.end}, newest first"
     if len(activities) > MAX_ACTIVITIES:
         header += f". Showing the newest {MAX_ACTIVITIES}, ask for a shorter range for the rest"
-    lines = [activity_line(a, groups) for a in activities[:MAX_ACTIVITIES]]
+    shown = activities[:MAX_ACTIVITIES]
+    ratings = {
+        rating.activity_id: rating
+        for rating in ctx.session.scalars(
+            select(ActivityRating).where(ActivityRating.activity_id.in_([a.id for a in shown]))
+        )
+    }
+    lines = [activity_line(a, groups, ratings.get(a.id)) for a in shown]
     return "\n".join([header, *lines])
 
 
@@ -273,6 +285,12 @@ def get_activity(ctx: ToolContext, args: ActivityId) -> str:
             ]
         ),
     ]
+    felt = rating_text(ctx.session.get(ActivityRating, activity.id))
+    lines.append(
+        f"The athlete's own rating: {felt}"
+        if felt
+        else "The athlete has not rated how this session felt"
+    )
     zones = ctx.session.scalars(
         select(ActivityZoneTime)
         .where(ActivityZoneTime.activity_id == activity.id)
@@ -741,8 +759,8 @@ class Tool:
 TOOLS = (
     Tool(
         "get_activity",
-        "One activity in detail: pace, grade-adjusted pace, HR and power zones, laps and "
-        "strength sets with reps and weight.",
+        "One activity in detail: pace, grade-adjusted pace, HR and power zones, laps, "
+        "strength sets with reps and weight, and the athlete's own rating of the session.",
         ActivityId,
         get_activity,
     ),
@@ -835,7 +853,7 @@ TOOLS = (
     Tool(
         "list_activities",
         "Activities in a date range, newest first, with id, type, distance, time, climbing, "
-        "average HR, load and terrain.",
+        "average HR, load, terrain and how hard the athlete said it felt.",
         ActivityQuery,
         list_activities,
     ),

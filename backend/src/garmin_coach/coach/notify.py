@@ -2,7 +2,7 @@ import logging
 import urllib.error
 import urllib.parse
 import urllib.request
-from collections.abc import Callable
+from collections.abc import Callable, Sequence
 from dataclasses import dataclass, replace
 from typing import Protocol
 
@@ -10,6 +10,13 @@ log = logging.getLogger(__name__)
 
 MAX_BODY_CHARS = 3500
 TIMEOUT_S = 10
+MAX_BUTTONS = 3
+
+
+@dataclass(frozen=True)
+class Button:
+    label: str
+    path: str
 
 
 @dataclass(frozen=True)
@@ -23,12 +30,20 @@ class Notifier:
     def enabled(self) -> bool:
         return bool(self.topic)
 
-    def send(self, title: str, message: str, page: str = "#chat") -> bool:
+    def send(
+        self, title: str, message: str, page: str = "#chat", buttons: Sequence[Button] = ()
+    ) -> bool:
         if not self.topic:
             return False
         params = {"title": title, "markdown": "yes"}
         if self.app_url:
-            params["click"] = self.app_url.rstrip("/") + "/" + page
+            base = self.app_url.rstrip("/") + "/"
+            params["click"] = base + page
+            if buttons:
+                params["actions"] = "; ".join(
+                    f"http, {button.label}, {base}{button.path}, method=POST, clear=true"
+                    for button in buttons[:MAX_BUTTONS]
+                )
         body = message if len(message) <= MAX_BODY_CHARS else message[:MAX_BODY_CHARS] + "…"
         request = urllib.request.Request(
             f"{self.url.rstrip('/')}/{urllib.parse.quote(self.topic)}?{urllib.parse.urlencode(params)}",
@@ -58,7 +73,9 @@ class Sender(Protocol):
     @property
     def enabled(self) -> bool: ...
 
-    def send(self, title: str, message: str, page: str = "#chat") -> bool: ...
+    def send(
+        self, title: str, message: str, page: str = "#chat", buttons: Sequence[Button] = ()
+    ) -> bool: ...
 
 
 class ProfileNotifier:
@@ -79,6 +96,11 @@ class ProfileNotifier:
     def enabled(self) -> bool:
         return bool(self.topic)
 
-    def send(self, title: str, message: str, page: str = "#chat") -> bool:
+    def send(
+        self, title: str, message: str, page: str = "#chat", buttons: Sequence[Button] = ()
+    ) -> bool:
         notifier = replace(self.base, topic=self.topic)
-        return notifier.send(title, message, f"?profile={self.slug}{page}")
+        for_profile = [
+            replace(button, path=f"{button.path}?profile={self.slug}") for button in buttons
+        ]
+        return notifier.send(title, message, f"?profile={self.slug}{page}", for_profile)

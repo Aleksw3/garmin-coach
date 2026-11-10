@@ -86,6 +86,7 @@ Coaching tables:
 - `season_week`: the season outline. One row per week with a phase (base, build, peak, taper, race, recovery) and targets for hours without commutes, climbing on foot and the longest run or hike. The coach proposes it with `propose_season`, reads it next to what was done with `get_season`, and fits each training block to it.
 - `session_match`: links a planned session to the activity that fulfilled it, with a compliance score.
 - `plan_change_proposal`: changes the coach proposes. Nothing reaches the plan until I accept it.
+- `activity_rating`: how a session felt. Effort from 1 to 10, legs from 1 (fresh) to 5 (very sore), pain and a note. It is set on the Activity page or with the Felt easy, moderate and hard buttons on the feedback notification, which need `APP_URL`.
 - `coach_note`: short facts the coach saves for later ("prefers long runs on Saturdays, 2026-10-20").
 - `conversation`, `message`: chat threads, with the full API content blocks stored.
 - `evidence`: see the evidence library section.

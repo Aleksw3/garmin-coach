@@ -1,4 +1,5 @@
 import sqlite3
+from collections.abc import Sequence
 from datetime import date, datetime
 from pathlib import Path
 from typing import Any
@@ -11,7 +12,7 @@ from sqlalchemy.orm import Session, sessionmaker
 from garmin_coach.api.app import create_app
 from garmin_coach.api.profile import ProfileRuntime, make_profile
 from garmin_coach.coach.agent import Coach, coach_settings
-from garmin_coach.coach.notify import NO_NOTIFIER, Notifier, ProfileNotifier
+from garmin_coach.coach.notify import NO_NOTIFIER, Button, Notifier, ProfileNotifier
 from garmin_coach.coach.usage import Spending, record_usage
 from garmin_coach.config import Settings
 from garmin_coach.evidence.library import index_entry, search
@@ -131,8 +132,10 @@ def test_profile_notifier_links_to_the_profile() -> None:
     sent: list[str] = []
 
     class Recording(Notifier):
-        def send(self, title: str, message: str, page: str = "#chat") -> bool:
-            sent.append(f"{self.topic} {page}")
+        def send(
+            self, title: str, message: str, page: str = "#chat", buttons: Sequence[Button] = ()
+        ) -> bool:
+            sent.append(" ".join([f"{self.topic} {page}", *(button.path for button in buttons)]))
             return True
 
     topic: list[str | None] = [None]
@@ -140,8 +143,8 @@ def test_profile_notifier_links_to_the_profile() -> None:
     assert not notifier.enabled
     topic[0] = "kari-coach"
     assert notifier.enabled
-    notifier.send("Hi", "Run today", "#plan")
-    assert sent == ["kari-coach ?profile=kari#plan"]
+    notifier.send("Hi", "Run today", "#plan", [Button("Felt easy", "api/activities/1/effort/3")])
+    assert sent == ["kari-coach ?profile=kari#plan api/activities/1/effort/3?profile=kari"]
 
 
 def test_scheduler_has_jobs_per_profile(tmp_path: Path) -> None:

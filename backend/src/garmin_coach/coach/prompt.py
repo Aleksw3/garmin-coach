@@ -110,6 +110,11 @@ harder than planned, and give the two or three numbers that decided it.
 - Much harder needs clear numbers, such as most of an easy session above LT1 or a load far \
 above similar sessions. HR a few beats over the zone on climbs or late in a long session is \
 normal and counts as planned.
+- The athlete can rate a session after it: effort from 1 to 10, legs from 1 (fresh) to 5 \
+(very sore), and any pain. get_activity shows the rating. Give it the same weight as the \
+numbers. When the two disagree, for example an easy HR that felt like 8 out of 10, say so \
+and look for the reason in sleep, load, heat or illness. Treat pain that shows up twice as a \
+reason to change the plan.
 - Before you call a session hard, check the laps for HR spikes that pace and grade don't \
 explain. Those usually come from the wrist sensor, especially early in a session or in the \
 cold.

@@ -249,3 +249,30 @@ def test_season_outline_is_proposed_accepted_and_compared(plan: sessionmaker[Ses
         assert "week from 2026-10-26: base, targets 6 h, 800 m climbing on foot" in output
         assert "longest 2.0 h (week not over)" in output
         assert context_block(session, NOW).count("Season outline this week: base phase") == 1
+
+
+def test_rating_is_saved_and_shown_to_the_coach(plan: sessionmaker[Session]) -> None:
+    def make_service() -> SyncService:
+        return SyncService(FakeGarmin([]), plan, request_delay=0, sleep=lambda _: None)
+
+    coach = Coach(plan, None, coach_settings(Settings.model_construct()))
+    client = TestClient(single_app(plan, make_service, coach, schedule_sync=False))
+
+    assert client.get("/api/activities/12").json()["rating"] is None
+    assert client.post("/api/activities/12/effort/8").json()["effort"] == 8
+    assert client.post("/api/activities/12/effort/11").status_code == 422
+    assert client.post("/api/activities/999/effort/5").status_code == 404
+    saved = client.put(
+        "/api/activities/12/rating", json={"effort": 7, "legs": 4, "pain": "left knee", "note": ""}
+    )
+    assert saved.json() == {"effort": 7, "legs": 4, "pain": "left knee", "note": None}
+    assert client.get("/api/activities/12").json()["rating"]["legs"] == 4
+
+    with plan() as session:
+        context = ToolContext(session, NOW, 1.92)
+        detail, _ = run_tool(context, "get_activity", {"activity_id": 12})
+        listing, _ = run_tool(
+            context, "list_activities", {"start": "2026-10-26", "end": "2026-10-30"}
+        )
+    assert "own rating: effort 7/10, legs 4/5 (sore), pain: left knee" in detail
+    assert "felt 7/10" in listing

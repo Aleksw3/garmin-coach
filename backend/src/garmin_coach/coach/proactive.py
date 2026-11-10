@@ -1,14 +1,14 @@
 import logging
 import threading
 from collections import Counter
-from collections.abc import Callable
+from collections.abc import Callable, Sequence
 from datetime import date, datetime, timedelta
 
 from sqlalchemy import select
 from sqlalchemy.orm import Session, sessionmaker
 
 from garmin_coach.coach.agent import Coach, CoachError
-from garmin_coach.coach.notify import Sender
+from garmin_coach.coach.notify import Button, Sender
 from garmin_coach.models import Activity, ActivityFeedback, Conversation, DailyWellness
 from garmin_coach.reports import week_start
 
@@ -16,6 +16,7 @@ log = logging.getLogger(__name__)
 
 MAX_FEEDBACK_PER_SYNC = 3
 MAX_FEEDBACK_ATTEMPTS = 3
+QUICK_EFFORTS = {"easy": 3, "moderate": 5, "hard": 8}
 
 CHECKIN_PROMPT = """\
 Scheduled morning check-in for {day:%A %d %B}. Look at last night's sleep, HRV and resting \
@@ -41,6 +42,13 @@ Scheduled weekly review for the week from {first} to {last}. Compare what I did 
 plan, and look at load, recovery and progress toward my goals. Give a short table and a few \
 sentences. Then check next week's plan. If it is missing or no longer fits, propose next \
 week's sessions with propose_changes."""
+
+
+def effort_buttons(activity_id: int) -> list[Button]:
+    return [
+        Button(f"Felt {label}", f"api/activities/{activity_id}/effort/{effort}")
+        for label, effort in QUICK_EFFORTS.items()
+    ]
 
 
 class ProactiveCoach:
@@ -90,7 +98,14 @@ class ProactiveCoach:
                 log.warning("Could not carry last week's summary over: %s", error)
         return thread_id
 
-    def _run(self, purpose: str, label: str, prompt: str, title: str) -> str | None:
+    def _run(
+        self,
+        purpose: str,
+        label: str,
+        prompt: str,
+        title: str,
+        buttons: Sequence[Button] = (),
+    ) -> str | None:
         if not self.coach.ready:
             return None
         answer = ""
@@ -104,7 +119,7 @@ class ProactiveCoach:
                 return None
         answer = answer.strip()
         if answer:
-            self.notifier.send(title, answer)
+            self.notifier.send(title, answer, buttons=buttons)
         return answer
 
     def _slept_last_night(self, day: date) -> bool:
@@ -172,6 +187,7 @@ class ProactiveCoach:
                 f"Feedback on {name}",
                 FEEDBACK_PROMPT.format(id=activity.id, name=name, start=activity.start_time_local),
                 f"Feedback: {name}",
+                effort_buttons(activity.id),
             )
             if answer is None:
                 self._failed_attempts[activity.id] += 1

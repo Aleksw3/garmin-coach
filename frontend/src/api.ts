@@ -442,8 +442,14 @@ export type ActivityDetail = Activity & {
   zones: { kind: string; zone: number; seconds: number; low_boundary: number | null }[]
   sets: StrengthSetRow[]
   planned: { session_id: number; title: string; compliance: number | null; details: Record<string, number[]> } | null
+  rating: Rating | null
   exercise_categories: string[]
 }
+
+export type Rating = { effort: number | null; legs: number | null; pain: string | null; note: string | null }
+
+export const rateActivity = (id: number, rating: Rating) =>
+  request<Rating>(`/api/activities/${id}/rating`, json('PUT', rating))
 
 export const fetchActivity = (id: number) => request<ActivityDetail>(`/api/activities/${id}`)
 export const editSet = (activityId: number, setIndex: number, values: SetValues & { deleted: boolean }) =>

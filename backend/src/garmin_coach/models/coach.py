@@ -105,3 +105,14 @@ class ThresholdTest(Base):
     activity_id: Mapped[int | None] = mapped_column(BigInteger)
     notes: Mapped[str | None] = mapped_column(Text)
     created_at: Mapped[datetime] = mapped_column(DateTime)
+
+
+class ActivityRating(Base):
+    __tablename__ = "activity_rating"
+
+    activity_id: Mapped[int] = mapped_column(BigInteger, primary_key=True)
+    effort: Mapped[int | None] = mapped_column(Integer)
+    legs: Mapped[int | None] = mapped_column(Integer)
+    pain: Mapped[str | None] = mapped_column(Text)
+    note: Mapped[str | None] = mapped_column(Text)
+    updated_at: Mapped[datetime] = mapped_column(DateTime)

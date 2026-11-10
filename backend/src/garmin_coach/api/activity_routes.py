@@ -1,7 +1,8 @@
 import json
 from datetime import datetime
+from typing import Annotated
 
-from fastapi import APIRouter, HTTPException, Response
+from fastapi import APIRouter, HTTPException, Path, Response
 from pydantic import BaseModel, ConfigDict, Field
 from sqlalchemy import select
 
@@ -13,6 +14,7 @@ from garmin_coach.metrics.zones import activity_zone_seconds, current_zones
 from garmin_coach.models import (
     Activity,
     ActivityLap,
+    ActivityRating,
     ActivityZoneTime,
     PlannedSession,
     SessionMatch,
@@ -75,6 +77,17 @@ class PlannedMatchOut(BaseModel):
     details: dict[str, list[float]]
 
 
+class RatingIn(BaseModel):
+    effort: int | None = Field(default=None, ge=1, le=10)
+    legs: int | None = Field(default=None, ge=1, le=5)
+    pain: str | None = Field(default=None, max_length=300)
+    note: str | None = Field(default=None, max_length=1000)
+
+
+class RatingOut(RatingIn):
+    model_config = ConfigDict(from_attributes=True)
+
+
 class ActivityDetailOut(ActivityOut):
     moving_s: float | None
     elevation_loss_m: float | None
@@ -91,6 +104,7 @@ class ActivityDetailOut(ActivityOut):
     zones: list[ZoneOut]
     sets: list[SetOut]
     planned: PlannedMatchOut | None
+    rating: RatingOut | None
     exercise_categories: list[str]
     drift_first_hr: float | None
     drift_second_hr: float | None
@@ -204,12 +218,44 @@ def get_activity(session: SessionDep, activity_id: int) -> ActivityDetailOut:
         zones=[ZoneOut.model_validate(zone) for zone in zones] + own_zones(session, activity_id),
         sets=strength_sets(session, activity_id),
         planned=planned_match(session, activity_id),
+        rating=rating_out(session.get(ActivityRating, activity_id)),
         exercise_categories=sorted(MUSCLES_BY_CATEGORY),
         drift_first_hr=activity.drift_first_hr,
         drift_second_hr=activity.drift_second_hr,
         hr_drift_pct=activity.hr_drift_pct,
         decoupling_pct=activity.decoupling_pct,
     )
+
+
+def rating_out(rating: ActivityRating | None) -> RatingOut | None:
+    return None if rating is None else RatingOut.model_validate(rating)
+
+
+def rating_for(session: SessionDep, activity_id: int) -> ActivityRating:
+    find_activity(session, activity_id)
+    rating = session.get(ActivityRating, activity_id) or ActivityRating(activity_id=activity_id)
+    rating.updated_at = datetime.now()
+    session.add(rating)
+    return rating
+
+
+@router.put("/activities/{activity_id}/rating", response_model=RatingOut)
+def rate_activity(session: SessionDep, activity_id: int, body: RatingIn) -> ActivityRating:
+    rating = rating_for(session, activity_id)
+    for field, value in body.model_dump().items():
+        setattr(rating, field, value or None)
+    session.commit()
+    return rating
+
+
+@router.post("/activities/{activity_id}/effort/{effort}", response_model=RatingOut)
+def rate_effort(
+    session: SessionDep, activity_id: int, effort: Annotated[int, Path(ge=1, le=10)]
+) -> ActivityRating:
+    rating = rating_for(session, activity_id)
+    rating.effort = effort
+    session.commit()
+    return rating
 
 
 def find_set(session: SessionDep, activity_id: int, set_index: int) -> StrengthSet:

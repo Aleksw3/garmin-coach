@@ -2,10 +2,13 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { useState, type FormEvent } from 'react'
 import {
   acceptProposal,
+  addUnavailable,
   createConversation,
+  deleteUnavailable,
   fetchCalendar,
   fetchProposals,
   fetchSeason,
+  fetchUnavailable,
   rejectProposal,
   streamMessage,
   type Activity,
@@ -14,6 +17,9 @@ import {
   type ProposalChange,
   type SeasonWeekSpec,
   type SessionSpec,
+  type Unavailable,
+  type UnavailableInput,
+  type UnavailableReason,
 } from '../api'
 import { Card } from '../components/Card'
 import { applyEvent, type Pending } from '../chatEvents'
@@ -314,10 +320,12 @@ function WeekRow({
   activities,
   doneSeconds,
   season,
+  away,
   today,
   onOpen,
 }: {
   season?: SeasonWeekSpec
+  away: Unavailable[]
   monday: string
   sessions: PlannedSession[]
   activities: Activity[]
@@ -347,7 +355,8 @@ function WeekRow({
         {days.map((day) => {
           const daySessions = sessions.filter((s) => s.day === day)
           const dayActivities = activities.filter((a) => a.start_time_local.slice(0, 10) === day)
-          const empty = daySessions.length === 0 && dayActivities.length === 0 && day !== today
+          const dayAway = away.filter((period) => period.first_day <= day && day <= period.last_day)
+          const empty = daySessions.length === 0 && dayActivities.length === 0 && dayAway.length === 0 && day !== today
           return (
             <div
               key={day}
@@ -357,6 +366,11 @@ function WeekRow({
                 {dayLabel(day)}
               </p>
               <div className="space-y-1.5">
+                {dayAway.map((period) => (
+                  <p key={period.id} className="rounded-md border border-dashed border-line px-2 py-1 text-xs text-secondary" title={period.note ?? undefined}>
+                    {REASONS[period.reason]}
+                  </p>
+                ))}
                 {daySessions.map((session) => (
                   <SessionCard key={session.id} session={session} today={today} onOpen={() => onOpen(session.id)} />
                 ))}
@@ -372,6 +386,110 @@ function WeekRow({
   )
 }
 
+const REASONS: Record<UnavailableReason, string> = {
+  travel: 'Travel',
+  illness: 'Illness',
+  injury: 'Injury',
+  work: 'Work',
+  other: 'Away',
+}
+
+function AwayDays({ periods, first, last }: { periods: Unavailable[]; first: string; last: string }) {
+  const queryClient = useQueryClient()
+  const today = localToday()
+  const [period, setPeriod] = useState<UnavailableInput>({ first_day: today, last_day: today, reason: 'travel', note: null })
+  const refresh = () => queryClient.invalidateQueries({ queryKey: ['unavailable'] })
+  const add = useMutation({ mutationFn: addUnavailable, onSuccess: refresh })
+  const remove = useMutation({ mutationFn: deleteUnavailable, onSuccess: refresh })
+  const input = 'rounded-lg border border-line bg-page px-2 py-1.5 text-base text-primary sm:text-sm'
+  return (
+    <details className="text-sm">
+      <summary className="cursor-pointer text-secondary select-none">
+        Days you cannot train as normal
+        {periods.length > 0 && `, ${periods.length} between ${shortDate(first)} and ${shortDate(last)}`}
+      </summary>
+      <div className="mt-2 space-y-2">
+        <p className="text-xs text-muted">
+          Travel, illness, injury or work. The coach plans around these days. After adding some, ask the coach to move the sessions
+          they hit.
+        </p>
+        {periods.map((row) => (
+          <p key={row.id} className="text-xs text-secondary">
+            {shortDate(row.first_day)}
+            {row.last_day !== row.first_day && ` to ${shortDate(row.last_day)}`}, {REASONS[row.reason].toLowerCase()}
+            {row.note ? `, ${row.note}` : ''}{' '}
+            <button type="button" onClick={() => remove.mutate(row.id)} className="text-muted hover:text-critical">
+              Remove
+            </button>
+          </p>
+        ))}
+        <form
+          className="flex flex-wrap items-end gap-2"
+          onSubmit={(event) => {
+            event.preventDefault()
+            add.mutate({ ...period, note: period.note || null })
+          }}
+        >
+          <label className="text-xs text-muted">
+            <span className="mb-1 block">From</span>
+            <input
+              type="date"
+              required
+              className={input}
+              value={period.first_day}
+              onChange={(event) =>
+                setPeriod({
+                  ...period,
+                  first_day: event.target.value,
+                  last_day: period.last_day < event.target.value ? event.target.value : period.last_day,
+                })
+              }
+            />
+          </label>
+          <label className="text-xs text-muted">
+            <span className="mb-1 block">To</span>
+            <input
+              type="date"
+              required
+              min={period.first_day}
+              className={input}
+              value={period.last_day}
+              onChange={(event) => setPeriod({ ...period, last_day: event.target.value })}
+            />
+          </label>
+          <label className="text-xs text-muted">
+            <span className="mb-1 block">Reason</span>
+            <select
+              className={input}
+              value={period.reason}
+              onChange={(event) => setPeriod({ ...period, reason: event.target.value as UnavailableReason })}
+            >
+              {Object.entries(REASONS).map(([key, label]) => (
+                <option key={key} value={key}>
+                  {label}
+                </option>
+              ))}
+            </select>
+          </label>
+          <label className="min-w-40 flex-1 text-xs text-muted">
+            <span className="mb-1 block">What is still possible</span>
+            <input
+              className={`${input} w-full`}
+              placeholder="Hotel gym, easy walks"
+              value={period.note ?? ''}
+              onChange={(event) => setPeriod({ ...period, note: event.target.value })}
+            />
+          </label>
+          <button type="submit" className="rounded-lg border border-line px-3 py-1.5 text-sm text-primary hover:bg-raised">
+            Add
+          </button>
+        </form>
+        {add.error && <p className="text-xs text-critical">{add.error.message}</p>}
+      </div>
+    </details>
+  )
+}
+
 export function PlanPage() {
   const today = localToday()
   const [first, setFirst] = useState(() => addDays(mondayOf(today), -7))
@@ -379,6 +497,7 @@ export function PlanPage() {
   const calendar = useQuery({ queryKey: ['calendar', first, last], queryFn: () => fetchCalendar(first, last) })
   const proposals = useQuery({ queryKey: ['proposals'], queryFn: fetchProposals })
   const season = useQuery({ queryKey: ['season', first, last], queryFn: () => fetchSeason(first, last) })
+  const away = useQuery({ queryKey: ['unavailable', first, last], queryFn: () => fetchUnavailable(first, last) })
   const mondays = Array.from({ length: WEEKS_SHOWN }, (_, index) => addDays(first, index * 7))
   const data = calendar.data
   const matched = new Set(data?.sessions.map((s) => s.match?.activity_id))
@@ -401,6 +520,7 @@ export function PlanPage() {
         </details>
       ))}
       {futureSessions === 0 && !calendar.isPending && <PlanRequest />}
+      <AwayDays periods={away.data ?? []} first={first} last={last} />
       <div className="flex flex-wrap items-center gap-2" role="group" aria-label="Weeks shown">
         <button
           type="button"
@@ -440,6 +560,7 @@ export function PlanPage() {
                 monday={monday}
                 today={today}
                 season={season.data?.find((week) => week.week_start === monday)}
+                away={away.data ?? []}
                 sessions={data.sessions.filter((s) => mondayOf(s.day) === monday)}
                 activities={weekActivities.filter((a) => !matched.has(a.id))}
                 doneSeconds={weekActivities.reduce((sum, a) => sum + (a.duration_s ?? 0), 0)}

@@ -21,6 +21,13 @@ from garmin_coach.coach.plan import (
     session_targets,
     sessions_between,
 )
+from garmin_coach.coach.unavailable import (
+    PeriodSpec,
+    add_period,
+    period_text,
+    periods_between,
+    sessions_in,
+)
 from garmin_coach.course import course_text, describe, goal_course
 from garmin_coach.evidence.library import citation, search
 from garmin_coach.garmin.workouts import find_exercises
@@ -138,6 +145,10 @@ class NoteQuery(ToolInput):
 
 class NewNote(ToolInput):
     text: str = Field(min_length=1, max_length=1000)
+
+
+class UnavailableInput(PeriodSpec, ToolInput):
+    pass
 
 
 class ExerciseQuery(ToolInput):
@@ -632,6 +643,8 @@ def plan_lines(ctx: ToolContext, args: DateRange) -> list[str]:
                 ]
             )
         )
+    for period in periods_between(ctx.session, args.start, args.end):
+        lines.append(f"Cannot train as normal: {period_text(period)}")
     this_week = season_progress(ctx.session, args.start, args.end)
     for entry in this_week:
         lines.append(
@@ -818,6 +831,16 @@ def get_hills(ctx: ToolContext, args: HillQuery) -> str:
     return "\n".join(lines)
 
 
+def set_unavailable(ctx: ToolContext, args: UnavailableInput) -> str:
+    period = add_period(ctx.session, args)
+    clashes = sessions_in(ctx.session, period)
+    saved = f"Saved: {period_text(period)}"
+    if not clashes:
+        return f"{saved}. No planned sessions on those days"
+    listed = "; ".join(f"session {row.id} {row.day} {row.title}" for row in clashes)
+    return f"{saved}. Planned sessions on those days, propose changes for them: {listed}"
+
+
 def save_note(ctx: ToolContext, args: NewNote) -> str:
     note = CoachNote(created_at=datetime.now(), text=args.text)
     ctx.session.add(note)
@@ -985,6 +1008,14 @@ TOOLS = (
         "observational, D review or other) and DOIs.",
         EvidenceQuery,
         search_evidence,
+    ),
+    Tool(
+        "set_unavailable",
+        "Save days when the athlete cannot train as normal because of travel, illness, injury "
+        "or work. Use it when the athlete tells you about such days. It returns the planned "
+        "sessions that fall on them.",
+        UnavailableInput,
+        set_unavailable,
     ),
     Tool(
         "save_note",

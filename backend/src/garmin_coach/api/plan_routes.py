@@ -24,6 +24,7 @@ from garmin_coach.coach.plan import (
     reject_proposal,
     sessions_between,
 )
+from garmin_coach.coach.unavailable import PeriodSpec, add_period, periods_between
 from garmin_coach.garmin.source import (
     GarminAuthError,
     GarminError,
@@ -39,7 +40,14 @@ from garmin_coach.garmin.workouts import (
 from garmin_coach.metrics.compliance import match_sessions
 from garmin_coach.metrics.season import season_progress
 from garmin_coach.metrics.zones import current_zones
-from garmin_coach.models import Activity, Plan, PlannedSession, PlanProposal, SessionMatch
+from garmin_coach.models import (
+    Activity,
+    Plan,
+    PlannedSession,
+    PlanProposal,
+    SessionMatch,
+    UnavailablePeriod,
+)
 from garmin_coach.normalize.sports import sport_groups
 
 log = logging.getLogger(__name__)
@@ -169,6 +177,33 @@ def get_season(session: SessionDep, start: date, end: date) -> list[SeasonWeekOu
         )
         for entry in season_progress(session, start, end)
     ]
+
+
+class PeriodOut(PeriodSpec):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: int
+
+
+@router.get("/unavailable", response_model=list[PeriodOut])
+def list_unavailable(session: SessionDep, start: date, end: date) -> list[UnavailablePeriod]:
+    return periods_between(session, start, end)
+
+
+@router.post("/unavailable", response_model=PeriodOut)
+def add_unavailable(session: SessionDep, body: PeriodSpec) -> UnavailablePeriod:
+    period = add_period(session, body)
+    session.commit()
+    return period
+
+
+@router.delete("/unavailable/{period_id}", status_code=204)
+def delete_unavailable(session: SessionDep, period_id: int) -> Response:
+    period = session.get(UnavailablePeriod, period_id)
+    if period is not None:
+        session.delete(period)
+        session.commit()
+    return Response(status_code=204)
 
 
 @router.get("/plan", response_model=CalendarOut)

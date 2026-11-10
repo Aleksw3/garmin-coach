@@ -1,5 +1,5 @@
 import json
-from datetime import date, datetime
+from datetime import date, datetime, timedelta
 
 import pytest
 from fastapi.testclient import TestClient
@@ -308,3 +308,43 @@ def test_fueling_is_saved_and_shown_to_the_coach(plan: sessionmaker[Session]) ->
     expected = f"120 g carbohydrate ({120 / hours:.0f} per hour), 1000 ml fluid"
     assert f"Fueling logged by the athlete: {expected}" in detail
     assert "stomach: nausea after 2 h" in listing
+
+
+def test_unavailable_days_reach_the_coach(plan: sessionmaker[Session]) -> None:
+    def make_service() -> SyncService:
+        return SyncService(FakeGarmin([]), plan, request_delay=0, sleep=lambda _: None)
+
+    coach = Coach(plan, None, coach_settings(Settings.model_construct()))
+    client = TestClient(single_app(plan, make_service, coach, schedule_sync=False))
+    today = NOW.date()
+    trip = {
+        "first_day": str(today + timedelta(days=2)),
+        "last_day": str(today + timedelta(days=4)),
+        "reason": "travel",
+        "note": "hotel gym only",
+    }
+    backwards = {**trip, "last_day": str(today)}
+    assert client.post("/api/unavailable", json=backwards).status_code == 422
+    period_id = client.post("/api/unavailable", json=trip).json()["id"]
+    window = {"start": str(today), "end": str(today + timedelta(days=7))}
+    assert [p["id"] for p in client.get("/api/unavailable", params=window).json()] == [period_id]
+
+    with plan() as session:
+        context = ToolContext(session, NOW, 1.92)
+        text, _ = run_tool(context, "get_plan", window)
+        expected = f"Cannot train as normal: {trip['first_day']} to {trip['last_day']} travel"
+        assert f"{expected} (hotel gym only)" in text
+        assert expected in context_block(session, NOW)
+        saved, ok = run_tool(
+            context,
+            "set_unavailable",
+            {"first_day": str(today), "last_day": str(today), "reason": "illness"},
+        )
+        assert ok
+        assert saved.startswith(f"Saved: {today} illness")
+        session.commit()
+
+    assert client.delete(f"/api/unavailable/{period_id}").status_code == 204
+    assert [p["reason"] for p in client.get("/api/unavailable", params=window).json()] == [
+        "illness"
+    ]

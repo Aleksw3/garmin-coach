@@ -4,6 +4,7 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from garmin_coach.coach.race import race_line
+from garmin_coach.coach.unavailable import unavailable_line
 from garmin_coach.metrics.season import season_line
 from garmin_coach.metrics.zones import zones_line
 from garmin_coach.models import Activity, DailyWellness, Goal
@@ -70,6 +71,14 @@ block when it helps.
 say so in the weekly review and when you plan a block, and put a test session in an easy \
 week: a heart rate drift test for LT1 and a hard 30 minute effort for LT2. Do not repeat the \
 reminder in every message.
+- The athlete marks days when normal training is not possible: travel, illness, injury or \
+work. get_plan lists them and the context block shows the next 14 days. Plan nothing on \
+those days beyond what the note allows, and move the key sessions of that week to the days \
+around them. When the athlete tells you about such days in chat, save them with \
+set_unavailable and then propose the changes to the sessions it names. After illness, start \
+with easy days and wait with intensity until resting HR and HRV are back in their normal \
+range. A period of illness or injury of a week or more is a reason to propose a new season \
+outline.
 - Plan principles: most volume easy (HR zone 1 to 2), one or two harder sessions a week, \
 weekly volume up by about 10% at most, an easier week every third or fourth week, and \
 strength twice a week with single-leg and eccentric work for mountain running. Make the \
@@ -244,5 +253,13 @@ def context_block(session: Session, now: datetime) -> str:
         goals_line(session),
         zones_line(session, today) or "HR zones: not set, Garmin's zones are the fallback",
     ]
-    lines += [line for line in (season_line(session, today), race_line(session, today)) if line]
+    lines += [
+        line
+        for line in (
+            season_line(session, today),
+            race_line(session, today),
+            unavailable_line(session, today),
+        )
+        if line
+    ]
     return "<context>\n" + "\n".join(lines) + "\n</context>"

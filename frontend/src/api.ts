@@ -417,6 +417,17 @@ export type SeasonWeekSpec = {
 
 export type SeasonWeek = SeasonWeekSpec & { done_hours: number; done_climb_m: number; done_longest_h: number }
 
+export type UnavailableReason = 'travel' | 'illness' | 'injury' | 'work' | 'other'
+
+export type UnavailableInput = { first_day: string; last_day: string; reason: UnavailableReason; note: string | null }
+
+export type Unavailable = UnavailableInput & { id: number }
+
+export const fetchUnavailable = (start: string, end: string) =>
+  request<Unavailable[]>(`/api/unavailable?start=${start}&end=${end}`)
+export const addUnavailable = (period: UnavailableInput) => request<Unavailable>('/api/unavailable', json('POST', period))
+export const deleteUnavailable = (id: number) => send(`/api/unavailable/${id}`, { method: 'DELETE' })
+
 export const fetchSeason = (start: string, end: string) =>
   request<SeasonWeek[]>(`/api/season?start=${start}&end=${end}`)
 

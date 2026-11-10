@@ -88,3 +88,13 @@ class SeasonWeek(Base):
     climb_m: Mapped[float | None] = mapped_column(Float)
     longest_h: Mapped[float | None] = mapped_column(Float)
     focus: Mapped[str | None] = mapped_column(Text)
+
+
+class UnavailablePeriod(Base):
+    __tablename__ = "unavailable_period"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    first_day: Mapped[date] = mapped_column(Date, index=True)
+    last_day: Mapped[date] = mapped_column(Date)
+    reason: Mapped[str] = mapped_column(String(16))
+    note: Mapped[str | None] = mapped_column(Text)

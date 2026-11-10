@@ -28,6 +28,7 @@ from garmin_coach.models.plan import (
     PlanProposal,
     SeasonWeek,
     SessionMatch,
+    UnavailablePeriod,
 )
 from garmin_coach.models.raw import RawActivity, RawDaily
 from garmin_coach.models.sync import SyncRun, SyncState
@@ -66,4 +67,5 @@ __all__ = [
     "SyncRun",
     "SyncState",
     "ThresholdTest",
+    "UnavailablePeriod",
 ]

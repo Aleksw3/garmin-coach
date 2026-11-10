@@ -462,6 +462,9 @@ export type Lap = {
 }
 
 export type ActivityDetail = Activity & {
+  temperature_c: number | null
+  feels_like_c: number | null
+  humidity_pct: number | null
   drift_first_hr: number | null
   drift_second_hr: number | null
   hr_drift_pct: number | null

@@ -3,6 +3,7 @@ from typing import Any, Protocol
 
 ACTIVITY_ENDPOINTS = ("splits", "hr_zones", "details")
 STRENGTH_ENDPOINTS = ("exercise_sets",)
+WEATHER_ENDPOINTS = ("weather",)
 DAILY_KINDS = ("stats", "sleep", "hrv", "readiness", "training_status")
 
 

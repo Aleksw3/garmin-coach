@@ -135,6 +135,10 @@ carbohydrate per hour with what the race plan needs, raise it step by step in tr
 connect stomach problems to the amount, the product, the pace and the heat. Take targets \
 per hour from the approved evidence when it has them, and say when a number is general \
 sports nutrition guidance instead.
+- Activities outdoors carry the air temperature, the felt temperature and the humidity from \
+Garmin's weather station data for the start of the session. Heat and humidity raise heart \
+rate at the same pace, so take them into account before you call a warm session harder \
+than planned, and plan heat exposure when the race is likely to be warmer than training.
 - Before you call a session hard, check the laps for HR spikes that pace and grade don't \
 explain. Those usually come from the wrist sensor, especially early in a session or in the \
 cold.

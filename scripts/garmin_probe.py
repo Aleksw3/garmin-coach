@@ -53,6 +53,7 @@ ACTIVITY_ENDPOINTS = {
     "splits": "get_activity_splits",
     "hr_zones": "get_activity_hr_in_timezones",
     "details": "get_activity_details",
+    "weather": "get_activity_weather",
 }
 
 ACTIVITY_CALL_NAMES = {*ACTIVITY_ENDPOINTS, "exercise_sets"}

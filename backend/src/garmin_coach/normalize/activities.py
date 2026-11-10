@@ -163,12 +163,31 @@ def sets_from_exercise_sets(activity_id: int, data: dict[str, Any]) -> list[Stre
     return sets
 
 
+def measured(value: Any) -> float | None:
+    is_number = isinstance(value, int | float) and not isinstance(value, bool)
+    return float(value) if is_number else None
+
+
+def celsius(fahrenheit: float | None) -> float | None:
+    return None if fahrenheit is None else round((fahrenheit - 32) * 5 / 9, 1)
+
+
+def add_weather(activity: Activity, weather: Any) -> None:
+    if not isinstance(weather, dict):
+        return
+    # Garmin's weather endpoint gives temperatures in Fahrenheit whatever the account's units are
+    activity.temperature_c = celsius(measured(weather.get("temp")))
+    activity.feels_like_c = celsius(measured(weather.get("apparentTemp")))
+    activity.humidity_pct = measured(weather.get("relativeHumidity"))
+
+
 def normalize_activity(session: Session, activity_id: int) -> Activity | None:
     summary = raw_store.get_activity(session, activity_id, "summary")
     if summary is None:
         return None
 
     activity = activity_from_summary(summary)
+    add_weather(activity, raw_store.get_activity(session, activity_id, "weather"))
     existing = session.get(Activity, activity_id)
     if existing is not None:
         activity.is_commute = existing.is_commute

@@ -244,6 +244,7 @@ def activity_line(
             number(activity.training_load, "load"),
             f"terrain {terrain(climb)}" if group in TERRAIN_GROUPS and climb is not None else None,
             f"felt {rating.effort}/10" if rating and rating.effort is not None else None,
+            number(activity.temperature_c, "°C"),
         ]
     )
 
@@ -293,6 +294,8 @@ def get_activity(ctx: ToolContext, args: ActivityId) -> str:
                 number(activity.aerobic_training_effect, "aerobic TE", 1),
                 number(activity.anaerobic_training_effect, "anaerobic TE", 1),
                 activity.training_effect_label,
+                number(activity.feels_like_c, "°C felt"),
+                number(activity.humidity_pct, "% humidity"),
             ]
         ),
     ]

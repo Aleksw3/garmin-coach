@@ -58,6 +58,19 @@ function Stats({ activity }: { activity: ActivityDetail }) {
               : null,
         }
       : null,
+    activity.temperature_c !== null
+      ? {
+          label: 'Temperature',
+          value: `${number(activity.temperature_c)} °C`,
+          detail:
+            [
+              activity.feels_like_c !== null ? `felt ${number(activity.feels_like_c)} °C` : null,
+              activity.humidity_pct !== null ? `humidity ${number(activity.humidity_pct)}%` : null,
+            ]
+              .filter((part) => part !== null)
+              .join(', ') || null,
+        }
+      : null,
   ].filter((tile) => tile !== null)
   return (
     <div className="grid grid-cols-2 gap-3 md:grid-cols-3">

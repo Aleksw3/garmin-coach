@@ -13,6 +13,7 @@ from garmin_coach.garmin.source import (
     ACTIVITY_ENDPOINTS,
     DAILY_KINDS,
     STRENGTH_ENDPOINTS,
+    WEATHER_ENDPOINTS,
     GarminAuthError,
     GarminError,
     GarminRateLimited,
@@ -133,11 +134,15 @@ class SyncService:
         endpoints = list(ACTIVITY_ENDPOINTS)
         if sport_groups(session).get(summary["activityType"]["typeKey"]) == "strength":
             endpoints += STRENGTH_ENDPOINTS
+        if summary.get("startLatitude") is not None:
+            endpoints += WEATHER_ENDPOINTS
         have = set() if refresh else raw_store.activity_endpoints(session, activity_id)
         for endpoint in endpoints:
             if endpoint in have:
                 continue
             data = self._call(self.source.activity_endpoint, activity_id, endpoint)
+            if data is CALL_FAILED and endpoint in WEATHER_ENDPOINTS:
+                data = {}
             if data is not CALL_FAILED:
                 raw_store.put_activity(session, activity_id, endpoint, data)
                 session.commit()

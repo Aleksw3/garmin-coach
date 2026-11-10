@@ -65,6 +65,9 @@ class Activity(Base):
     drift_second_hr: Mapped[float | None] = mapped_column(Float)
     hr_drift_pct: Mapped[float | None] = mapped_column(Float)
     decoupling_pct: Mapped[float | None] = mapped_column(Float)
+    temperature_c: Mapped[float | None] = mapped_column(Float)
+    feels_like_c: Mapped[float | None] = mapped_column(Float)
+    humidity_pct: Mapped[float | None] = mapped_column(Float)
     climbs_scanned: Mapped[bool] = mapped_column(Boolean, default=False, server_default=false())
 
 

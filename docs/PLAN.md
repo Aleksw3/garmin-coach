@@ -88,6 +88,7 @@ Coaching tables:
 - `session_match`: links a planned session to the activity that fulfilled it, with a compliance score.
 - `plan_change_proposal`: changes the coach proposes. Nothing reaches the plan until I accept it.
 - `activity_rating`: how a session felt. Effort from 1 to 10, legs from 1 (fresh) to 5 (very sore), pain and a note. It is set on the Activity page or with the Felt easy, moderate and hard buttons on the feedback notification, which need `APP_URL`.
+- Weather: the sync fetches Garmin's weather for each activity with GPS and stores the temperature, the felt temperature and the humidity on the activity. The parser reads `temp` and `apparentTemp` as Fahrenheit and `relativeHumidity` as percent. `scripts/garmin_probe.py` saves the raw response, so check one against a day you remember.
 - `activity_fuel`: what I ate and drank in a session. Carbohydrate in grams, fluid in ml, stomach problems and a note, set on the Activity page for sessions of an hour or more. The coach sees the amounts per hour in `get_activity` and lists a period with `get_fueling`.
 - `coach_note`: short facts the coach saves for later ("prefers long runs on Saturdays, 2026-10-20").
 - `conversation`, `message`: chat threads, with the full API content blocks stored.

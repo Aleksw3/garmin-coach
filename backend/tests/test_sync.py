@@ -49,9 +49,11 @@ def test_backfill_fetches_activities_days_and_strength_sets(
         assert count(session, Activity) == 3
         assert count(session, DailyWellness) == 61
         assert count(session, StrengthSet) == 3
-        expected_endpoints = {"summary", "splits", "hr_zones", "details"}
+        expected_endpoints = {"summary", "splits", "hr_zones", "details", "weather"}
         assert raw_store.activity_endpoints(session, 1) == expected_endpoints
         assert "exercise_sets" in raw_store.activity_endpoints(session, 2)
+        weather = session.get_one(Activity, 1)
+        assert (weather.temperature_c, weather.feels_like_c, weather.humidity_pct) == (10, 5, 80)
         assert count(session, BodyComposition) > 0
         assert get_state(session, BACKFILL_CURSOR) == "2026-08-30"
 

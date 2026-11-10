@@ -112,6 +112,9 @@ class ActivityDetailOut(ActivityOut):
     anaerobic_training_effect: float | None
     training_effect_label: str | None
     location_name: str | None
+    temperature_c: float | None
+    feels_like_c: float | None
+    humidity_pct: float | None
     laps: list[LapOut]
     zones: list[ZoneOut]
     sets: list[SetOut]
@@ -219,6 +222,9 @@ def get_activity(session: SessionDep, activity_id: int) -> ActivityDetailOut:
         moving_s=activity.moving_s,
         elevation_loss_m=activity.elevation_loss_m,
         max_hr=activity.max_hr,
+        temperature_c=activity.temperature_c,
+        feels_like_c=activity.feels_like_c,
+        humidity_pct=activity.humidity_pct,
         avg_speed_mps=activity.avg_speed_mps,
         avg_grade_adjusted_speed_mps=activity.avg_grade_adjusted_speed_mps,
         avg_power_w=activity.avg_power_w,

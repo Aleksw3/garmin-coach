@@ -25,6 +25,7 @@ ACTIVITY_METHODS = {
     "hr_zones": "get_activity_hr_in_timezones",
     "details": "get_activity_details",
     "exercise_sets": "get_activity_exercise_sets",
+    "weather": "get_activity_weather",
 }
 
 DAILY_METHODS = {

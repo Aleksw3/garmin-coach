@@ -209,6 +209,8 @@ class FakeGarmin:
 
     def activity_endpoint(self, activity_id: int, endpoint: str) -> Any:
         self._record("activity", activity_id, endpoint)
+        if endpoint == "weather":
+            return {"temp": 50, "apparentTemp": 41, "relativeHumidity": 80}
         return {"splits": splits, "hr_zones": hr_zones, "details": dict}.get(
             endpoint, exercise_sets
         )()

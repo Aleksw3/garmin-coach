@@ -6,6 +6,7 @@ from pydantic import BaseModel, ConfigDict, Field, model_validator
 from sqlalchemy import select
 
 from garmin_coach.api.profile import SessionDep
+from garmin_coach.metrics.compliance import match_all
 from garmin_coach.metrics.zones import hr_zones, latest_test, weekly_zone_seconds
 from garmin_coach.models import Activity, ThresholdTest
 from garmin_coach.normalize.sports import OTHER, sport_groups
@@ -77,6 +78,8 @@ def get_zones(session: SessionDep) -> ZonesOut:
 @router.post("/tests", response_model=ZonesOut)
 def add_test(session: SessionDep, body: TestIn) -> ZonesOut:
     session.add(ThresholdTest(**body.model_dump(), created_at=datetime.now()))
+    session.flush()
+    match_all(session)
     session.commit()
     return zones_out(session)
 
@@ -87,6 +90,8 @@ def delete_test(session: SessionDep, test_id: int) -> Response:
     if test is None:
         raise HTTPException(404, "Test not found")
     session.delete(test)
+    session.flush()
+    match_all(session)
     session.commit()
     return Response(status_code=204)
 

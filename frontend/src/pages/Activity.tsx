@@ -18,6 +18,7 @@ const TARGET_LABELS: Record<string, [string, string]> = {
   duration_min: ['Duration', 'min'],
   distance_km: ['Distance', 'km'],
   elevation_gain_m: ['Climbing', 'm'],
+  hard_min: ['Above LT1', 'min'],
 }
 
 function pace(speed: number | null): string {

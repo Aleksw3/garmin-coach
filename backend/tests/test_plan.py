@@ -1,3 +1,4 @@
+import json
 from datetime import date, datetime
 
 import pytest
@@ -7,9 +8,15 @@ from sqlalchemy.orm import Session, sessionmaker
 from garmin_coach import raw_store
 from garmin_coach.coach.agent import Coach, coach_settings
 from garmin_coach.config import Settings
-from garmin_coach.metrics.compliance import match_sessions
+from garmin_coach.metrics.compliance import match_sessions, planned_hard_minutes, target_zone
 from garmin_coach.metrics.strength import effective_sets
-from garmin_coach.models import Plan, PlannedSession, SessionMatch
+from garmin_coach.models import (
+    ActivityHeartRate,
+    Plan,
+    PlannedSession,
+    SessionMatch,
+    ThresholdTest,
+)
 from garmin_coach.normalize import rebuild_all
 from garmin_coach.sync import SyncService
 from tests.apps import single_app
@@ -136,3 +143,55 @@ def test_activity_page_and_set_editor(plan: sessionmaker[Session]) -> None:
     client.patch(f"/api/sessions/{by_title['Long run']['id']}", json={"skipped": True})
     calendar = client.get("/api/plan", params={"start": "2026-10-26", "end": "2026-11-01"}).json()
     assert {s["title"]: s for s in calendar["sessions"]}["Long run"]["match"] is None
+
+
+def run_with_heart_rate(
+    session: Session, activity_id: int, seconds_by_bpm: dict[int, float]
+) -> None:
+    session.add_all(
+        ActivityHeartRate(activity_id=activity_id, bpm=bpm, seconds=seconds)
+        for bpm, seconds in seconds_by_bpm.items()
+    )
+    session.add(
+        ThresholdTest(
+            day=date(2026, 10, 1), lt1_hr=144, lt2_hr=165, method="manual", created_at=NOW
+        )
+    )
+
+
+def test_easy_run_above_lt1_scores_low(plan: sessionmaker[Session]) -> None:
+    with plan() as session:
+        row = session.get_one(PlannedSession, 1)
+        row.intensity = "Z2"
+        run_with_heart_rate(session, 11, {135: 900.0, 155: 900.0})
+        match_sessions(session, date(2026, 10, 26), date(2026, 11, 1))
+        match = session.get_one(SessionMatch, 1)
+
+    assert json.loads(match.details)["hard_min"] == [0, 15]
+    assert match.compliance == 50
+
+
+def test_intervals_count_planned_minutes_above_lt1(plan: sessionmaker[Session]) -> None:
+    with plan() as session:
+        row = session.get_one(PlannedSession, 1)
+        row.steps = [
+            {"kind": "warmup", "duration_min": 10},
+            {"kind": "intervals", "duration_min": 3, "repeats": 5, "target": "Z4"},
+            {"kind": "cooldown", "duration_min": 5, "target": "Z1-Z2"},
+        ]
+        run_with_heart_rate(session, 11, {135: 900.0, 170: 900.0})
+        match_sessions(session, date(2026, 10, 26), date(2026, 11, 1))
+        match = session.get_one(SessionMatch, 1)
+
+    assert json.loads(match.details)["hard_min"] == [15, 15]
+    assert match.compliance == 100
+
+
+def test_targets_without_a_zone_leave_intensity_out() -> None:
+    assert target_zone("6x3 min Z4") == 4
+    assert target_zone("zone 1 to 2") == 2
+    assert target_zone("easy") is None
+    by_feel = PlannedSession(steps=[{"kind": "steady", "duration_min": 40, "target": "easy"}])
+    assert planned_hard_minutes(by_feel) is None
+    by_distance = PlannedSession(steps=[{"kind": "intervals", "distance_km": 1, "target": "Z4"}])
+    assert planned_hard_minutes(by_distance) is None

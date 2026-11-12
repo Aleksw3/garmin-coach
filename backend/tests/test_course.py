@@ -11,7 +11,7 @@ from garmin_coach.config import Settings
 from garmin_coach.course import CourseError, describe, parse_gpx, save_course
 from garmin_coach.metrics.progress import progress, target_seconds
 from garmin_coach.metrics.projection import project
-from garmin_coach.models import Activity, ActivityFuel, Climb, Goal, GoalCourse
+from garmin_coach.models import Activity, ActivityFuel, Climb, Descent, Goal, GoalCourse
 from garmin_coach.sync import SyncService
 from tests.apps import single_app
 from tests.garmin_data import FakeGarmin
@@ -207,6 +207,11 @@ def test_progress_compares_now_with_12_weeks_ago(session: Session) -> None:
         )
         for gain in (200, 200, 240, 240)
     )
+    session.add_all(
+        Descent(activity_id=2, length_m=1000, drop_m=150, seconds=seconds)
+        for seconds in (360, 400, 450, 600)
+    )
+    session.add(Descent(activity_id=2, length_m=3000, drop_m=150, seconds=600))
     session.flush()
     found = progress(session, goal, today)
     parts = {part.key: part for part in found.parts}
@@ -221,6 +226,9 @@ def test_progress_compares_now_with_12_weeks_ago(session: Session) -> None:
     assert parts["descent"].race == pytest.approx(600, rel=0.02)
     assert parts["climb_rate"].now == pytest.approx(720)
     assert parts["climb_rate"].before is None
+    assert parts["descent_speed"].now == pytest.approx(9.75)
+    assert parts["descent_speed"].before is None
+    assert parts["descent_week"].now == pytest.approx(0)
     assert parts["fueling"].now == pytest.approx(50)
     assert parts["durability"].now is None
     needed = found.seconds_per_week_needed

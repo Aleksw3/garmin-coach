@@ -23,7 +23,7 @@ from garmin_coach.metrics.commute import tag_commutes
 from garmin_coach.metrics.compliance import match_sessions
 from garmin_coach.models import SyncRun, SyncState
 from garmin_coach.normalize import normalize_activity, normalize_day
-from garmin_coach.normalize.climbs import scan_missing_climbs
+from garmin_coach.normalize.climbs import scan_missing_climbs, scan_missing_descents
 from garmin_coach.normalize.sports import seed_sport_mapping, sport_groups
 
 log = logging.getLogger(__name__)
@@ -185,6 +185,7 @@ class SyncService:
             self._fetch_body_composition(session, start, end)
             tag_commutes(session)
             scan_missing_climbs(session)
+            scan_missing_descents(session)
             match_sessions(session, start - timedelta(days=1), end + timedelta(days=1))
             session.commit()
 

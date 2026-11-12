@@ -16,9 +16,9 @@ from garmin_coach.metrics.hills import (
     home_point,
     uphill_speed,
 )
-from garmin_coach.models import Activity, Climb
+from garmin_coach.models import Activity, Climb, Descent
 from garmin_coach.normalize import normalize_activity
-from garmin_coach.normalize.climbs import scan_missing_climbs
+from garmin_coach.normalize.climbs import scan_missing_climbs, scan_missing_descents
 from garmin_coach.sync import SyncService
 from tests.apps import single_app
 from tests.garmin_data import FakeGarmin, activity_summary
@@ -93,6 +93,22 @@ def test_scan_fills_activities_from_before_the_climb_table(session: Session) -> 
     assert scan_missing_climbs(session) == 1
     assert len(session.scalars(select(Climb)).all()) == 1
     assert scan_missing_climbs(session) == 0
+
+
+def test_normalize_finds_the_descent_and_a_scan_fills_old_activities(session: Session) -> None:
+    add_activity(session, 1, "2026-10-20 07:00:00")
+
+    descent = session.scalars(select(Descent)).one()
+    assert descent.drop_m == pytest.approx(80, abs=4)
+    assert descent.length_m == pytest.approx(1000, abs=60)
+    assert descent.seconds == pytest.approx(descent.length_m / 2.5, rel=0.05)
+
+    session.execute(delete(Descent))
+    session.execute(update(Activity).values(descents_scanned=False))
+    assert scan_missing_descents(session, date(2026, 10, 21)) == 0
+    assert scan_missing_descents(session) == 1
+    assert len(session.scalars(select(Descent)).all()) == 1
+    assert len(session.scalars(select(Climb)).all()) == 1
 
 
 def test_hill_section_matches_the_repeat_time(session: Session) -> None:

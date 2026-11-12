@@ -53,3 +53,28 @@ def test_connections_use_wal_without_waiting_on_every_commit(database_url: str) 
     with create_db_engine(database_url).connect() as connection:
         actual = {name: connection.execute(sa.text(f"PRAGMA {name}")).scalar() for name in expected}
     assert actual == expected
+
+
+def test_adding_the_descent_scan_keeps_the_rows_that_belong_to_activities(tmp_path: Path) -> None:
+    url = f"sqlite:///{tmp_path / 'coach.db'}"
+    config = Config()
+    config.set_main_option("script_location", str(MIGRATIONS_DIR))
+    config.set_main_option("sqlalchemy.url", url)
+    command.upgrade(config, "0018")
+    with create_db_engine(url).begin() as connection:
+        connection.execute(
+            sa.text(
+                "INSERT INTO activity (id, type_key, start_time_local, start_time_gmt, "
+                "local_date, is_commute) VALUES "
+                "(1, 'running', '2026-11-01 08:00', '2026-11-01 07:00', '2026-11-01', 0)"
+            )
+        )
+        connection.execute(
+            sa.text(
+                "INSERT INTO activity_heart_rate (activity_id, bpm, seconds) VALUES (1, 140, 60)"
+            )
+        )
+    command.upgrade(config, "head")
+    with create_db_engine(url).connect() as connection:
+        assert connection.execute(sa.text("SELECT count(*) FROM activity_heart_rate")).scalar() == 1
+        assert connection.execute(sa.text("SELECT descents_scanned FROM activity")).scalar() == 0

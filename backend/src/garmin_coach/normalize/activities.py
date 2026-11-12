@@ -12,6 +12,7 @@ from garmin_coach.models import (
     ActivityLap,
     ActivityZoneTime,
     Climb,
+    Descent,
     StrengthSet,
 )
 from garmin_coach.normalize.climbs import store_climbs
@@ -194,7 +195,7 @@ def normalize_activity(session: Session, activity_id: int) -> Activity | None:
         activity.commute_override = existing.commute_override
     activity = session.merge(activity)
 
-    for child in (ActivityLap, ActivityZoneTime, StrengthSet, ActivityHeartRate, Climb):
+    for child in (ActivityLap, ActivityZoneTime, StrengthSet, ActivityHeartRate, Climb, Descent):
         session.execute(delete(child).where(child.activity_id == activity_id))
 
     splits = raw_store.get_activity(session, activity_id, "splits")

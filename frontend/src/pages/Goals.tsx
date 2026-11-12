@@ -263,8 +263,10 @@ function ProjectionSection({ goal, courseKey }: { goal: Goal; courseKey: string 
   )
 }
 
+const ONE_DECIMAL_UNITS = ['%', 'km per hour']
+
 function amount(part: ProgressPart, value: number | null): string {
-  return value === null ? 'no data' : `${number(value, part.unit === '%' ? 1 : 0)} ${part.unit}`
+  return value === null ? 'no data' : `${number(value, ONE_DECIMAL_UNITS.includes(part.unit) ? 1 : 0)} ${part.unit}`
 }
 
 function ProgressSection({ goal, courseKey }: { goal: Goal; courseKey: string }) {
@@ -322,7 +324,7 @@ function ProgressSection({ goal, courseKey }: { goal: Goal; courseKey: string })
                 {part.label}: {part.basis}.
               </li>
             ))}
-            <li>No measure covers technique on rough ground.</li>
+            <li>Speed on steep descents is the only stand-in for technique on rough ground.</li>
           </ul>
         </details>
       </div>

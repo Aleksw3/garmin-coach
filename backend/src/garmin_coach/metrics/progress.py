@@ -10,7 +10,8 @@ from sqlalchemy.orm import Session
 from garmin_coach.course import Course, describe
 from garmin_coach.metrics.projection import ON_FOOT_GROUPS, clock, effort_km, project
 from garmin_coach.metrics.running import climb_per_km, terrain
-from garmin_coach.models import Activity, ActivityFuel, Climb, Goal, GoalCourse
+from garmin_coach.models import Activity, ActivityFuel, Climb, Descent, Goal, GoalCourse
+from garmin_coach.normalize.climbs import scan_missing_descents
 from garmin_coach.normalize.sports import sport_groups
 from garmin_coach.reports import week_start
 
@@ -22,6 +23,11 @@ LONG_RUN_S = 90 * 60
 MIN_CLIMB_S = 600.0
 MIN_CLIMB_GRADE = 0.08
 MIN_CLIMBS = 4
+STEEP_DESCENT_GRADE = 0.10
+MIN_DESCENT_DROP_M = 100.0
+MIN_DESCENTS = 4
+
+ONE_DECIMAL_UNITS = ("%", "km per hour")
 
 CLOCK_TARGET = re.compile(r"(\d{1,2}):(\d{2})(?::(\d{2}))?")
 HOURS_TARGET = re.compile(r"(\d+(?:[.,]\d+)?)\s*(?:h\b|hours?|timer?)", re.IGNORECASE)
@@ -52,10 +58,17 @@ class ClimbEffort:
 
 
 @dataclass(frozen=True)
+class DescentEffort:
+    day: date
+    km_per_hour: float
+
+
+@dataclass(frozen=True)
 class Training:
     on_foot: list[Activity]
     run_ids: set[int]
     climbs: list[ClimbEffort]
+    steep_descents: list[DescentEffort]
     carbs_g: dict[int, float]
 
     def within(self, day: date, days: int) -> list[Activity]:
@@ -88,6 +101,15 @@ def load_training(session: Session, first: date, last: date) -> Training:
         )
         if activity_id in ids and gain / length >= MIN_CLIMB_GRADE
     ]
+    steep_descents = [
+        DescentEffort(ids[activity_id], length / seconds * 3.6)
+        for activity_id, length, drop, seconds in session.execute(
+            select(Descent.activity_id, Descent.length_m, Descent.drop_m, Descent.seconds).where(
+                Descent.drop_m >= MIN_DESCENT_DROP_M, Descent.seconds > 0
+            )
+        )
+        if activity_id in ids and drop / length >= STEEP_DESCENT_GRADE
+    ]
     carbs = {
         activity_id: grams
         for activity_id, grams in session.execute(
@@ -96,7 +118,7 @@ def load_training(session: Session, first: date, last: date) -> Training:
         if activity_id in ids and grams is not None
     }
     run_ids = {a.id for a in activities if groups.get(a.type_key) == "run"}
-    return Training(activities, run_ids, climbs, carbs)
+    return Training(activities, run_ids, climbs, steep_descents, carbs)
 
 
 def activity_effort_km(activity: Activity) -> float:
@@ -114,6 +136,20 @@ def longest_effort_km(training: Training, day: date) -> float | None:
 
 def biggest_descent_m(training: Training, day: date) -> float | None:
     return max((a.elevation_loss_m or 0 for a in training.within(day, RECENT_DAYS)), default=None)
+
+
+def weekly_descent_m(training: Training, day: date) -> float | None:
+    recent = training.within(day, RECENT_DAYS)
+    return sum(a.elevation_loss_m or 0 for a in recent) / (RECENT_DAYS / 7) if recent else None
+
+
+def steep_descent_speed(training: Training, day: date) -> float | None:
+    speeds = [
+        d.km_per_hour
+        for d in training.steep_descents
+        if day - timedelta(days=FORM_DAYS) < d.day <= day
+    ]
+    return statistics.quantiles(speeds, n=4)[-1] if len(speeds) >= MIN_DESCENTS else None
 
 
 def climb_rate(training: Training, day: date) -> float | None:
@@ -173,6 +209,23 @@ MEASURES = (
         "m",
         "Most descent in one run or hike of the last 6 weeks",
         biggest_descent_m,
+    ),
+    Measure(
+        "descent_week",
+        "Descent per week",
+        "m per week",
+        "Mean of the last 6 weeks of runs and hikes. Legs that descend often take less damage "
+        "from a long descent",
+        weekly_descent_m,
+    ),
+    Measure(
+        "descent_speed",
+        "Speed on steep descents",
+        "km per hour",
+        "Upper quartile of the descents of 100 m or more at 10% or steeper in the last 90 days, "
+        f"with at least {MIN_DESCENTS} descents. It stands in for technique, and it also "
+        "rises when you choose to push",
+        steep_descent_speed,
     ),
     Measure(
         "climb_rate",
@@ -256,6 +309,8 @@ def progress(session: Session, goal: Goal, today: date) -> Progress:
     row = session.get(GoalCourse, goal.id)
     demands = race_demands(goal, describe(row) if row else None)
     before = today - timedelta(days=COMPARE_DAYS)
+    if scan_missing_descents(session, before - timedelta(days=FORM_DAYS)):
+        session.commit()
     training = load_training(session, before - timedelta(days=FORM_DAYS), today)
     parts = [
         Part(
@@ -276,7 +331,9 @@ def progress(session: Session, goal: Goal, today: date) -> Progress:
 
 
 def amount(value: float | None, unit: str) -> str:
-    return "no data" if value is None else f"{value:.0f} {unit}"
+    if value is None:
+        return "no data"
+    return f"{value:.1f} {unit}" if unit in ONE_DECIMAL_UNITS else f"{value:.0f} {unit}"
 
 
 def progress_text(found: Progress) -> list[str]:
@@ -313,6 +370,7 @@ def progress_text(found: Progress) -> list[str]:
             line += f", the race has {amount(part.race, part.unit)}"
         lines.append(f"{line}. {part.basis}.")
     lines.append(
-        "No measure covers technique on rough ground. Ask the athlete how the descents felt."
+        "Speed on steep descents is the only stand-in for technique on rough ground. Ask the "
+        "athlete how the descents felt."
     )
     return lines

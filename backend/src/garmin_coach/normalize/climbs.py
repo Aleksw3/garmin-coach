@@ -1,12 +1,13 @@
 import statistics
 from dataclasses import dataclass, replace
+from datetime import date
 from typing import Any
 
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from garmin_coach import raw_store
-from garmin_coach.models import Activity, Climb
+from garmin_coach.models import Activity, Climb, Descent
 from garmin_coach.normalize.sports import sport_groups
 
 TRACK_FIELDS = (
@@ -17,6 +18,7 @@ TRACK_FIELDS = (
     "sumDuration",
 )
 CLIMB_GROUPS = ("run", "vertical", "cycling")
+DESCENT_GROUPS = ("run", "vertical")
 STEP_M = 20.0
 SMOOTHING_REACH_M = 40.0
 MAX_DIP_M = 4.0
@@ -137,12 +139,41 @@ def find_climbs(activity_id: int, details: dict[str, Any] | None) -> list[Climb]
     return climbs
 
 
-def store_climbs(
+def find_descents(activity_id: int, details: dict[str, Any] | None) -> list[Descent]:
+    profile = even_profile(track_points(details))
+    upside_down = [replace(point, elevation=-point.elevation) for point in profile]
+    return [
+        Descent(
+            activity_id=activity_id,
+            length_m=profile[bottom].distance - profile[top].distance,
+            drop_m=profile[top].elevation - profile[bottom].elevation,
+            seconds=profile[bottom].seconds - profile[top].seconds,
+        )
+        for top, bottom in climb_ranges(upside_down)
+    ]
+
+
+def add_climbs(
     session: Session, activity: Activity, details: dict[str, Any] | None, groups: dict[str, str]
 ) -> None:
     if groups.get(activity.type_key) in CLIMB_GROUPS:
         session.add_all(find_climbs(activity.id, details))
     activity.climbs_scanned = True
+
+
+def add_descents(
+    session: Session, activity: Activity, details: dict[str, Any] | None, groups: dict[str, str]
+) -> None:
+    if groups.get(activity.type_key) in DESCENT_GROUPS:
+        session.add_all(find_descents(activity.id, details))
+    activity.descents_scanned = True
+
+
+def store_climbs(
+    session: Session, activity: Activity, details: dict[str, Any] | None, groups: dict[str, str]
+) -> None:
+    add_climbs(session, activity, details, groups)
+    add_descents(session, activity, details, groups)
 
 
 def scan_missing_climbs(session: Session) -> int:
@@ -154,5 +185,21 @@ def scan_missing_climbs(session: Session) -> int:
             if groups.get(activity.type_key) in CLIMB_GROUPS
             else None
         )
-        store_climbs(session, activity, details, groups)
+        add_climbs(session, activity, details, groups)
+    return len(activities)
+
+
+def scan_missing_descents(session: Session, since: date | None = None) -> int:
+    groups = sport_groups(session)
+    query = select(Activity).where(Activity.descents_scanned.is_(False))
+    if since is not None:
+        query = query.where(Activity.local_date >= since)
+    activities = session.scalars(query).all()
+    for activity in activities:
+        details = (
+            raw_store.get_activity(session, activity.id, "details")
+            if groups.get(activity.type_key) in DESCENT_GROUPS
+            else None
+        )
+        add_descents(session, activity, details, groups)
     return len(activities)

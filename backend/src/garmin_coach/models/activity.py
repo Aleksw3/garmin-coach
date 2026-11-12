@@ -69,6 +69,7 @@ class Activity(Base):
     feels_like_c: Mapped[float | None] = mapped_column(Float)
     humidity_pct: Mapped[float | None] = mapped_column(Float)
     climbs_scanned: Mapped[bool] = mapped_column(Boolean, default=False, server_default=false())
+    descents_scanned: Mapped[bool] = mapped_column(Boolean, default=False, server_default=false())
 
 
 class ActivityHeartRate(Base):
@@ -127,6 +128,18 @@ class Climb(Base):
     gain_m: Mapped[float] = mapped_column(Float)
     seconds: Mapped[float] = mapped_column(Float)
     track: Mapped[list[Any]] = mapped_column(JSON)
+
+
+class Descent(Base):
+    __tablename__ = "descent"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    activity_id: Mapped[int] = mapped_column(
+        ForeignKey("activity.id", ondelete="CASCADE"), index=True
+    )
+    length_m: Mapped[float] = mapped_column(Float)
+    drop_m: Mapped[float] = mapped_column(Float)
+    seconds: Mapped[float] = mapped_column(Float)
 
 
 class StrengthSet(Base):

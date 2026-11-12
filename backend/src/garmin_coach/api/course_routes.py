@@ -6,6 +6,7 @@ from pydantic import BaseModel, ConfigDict
 
 from garmin_coach.api.profile import SessionDep
 from garmin_coach.course import MAX_GPX_BYTES, CourseError, as_json, describe, save_course
+from garmin_coach.metrics.progress import Progress, progress
 from garmin_coach.metrics.projection import Projection, project
 from garmin_coach.models import Goal, GoalCourse
 
@@ -75,6 +76,41 @@ class ProjectionOut(BaseModel):
 @router.get("/goals/{goal_id}/projection", response_model=ProjectionOut | None)
 def get_projection(session: SessionDep, goal_id: int) -> Projection | None:
     return project(session, find_goal(session, goal_id), date.today())
+
+
+class EstimateOut(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    day: date
+    fast_s: float
+    slow_s: float
+
+
+class PartOut(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    key: str
+    label: str
+    unit: str
+    basis: str
+    higher_is_better: bool
+    now: float | None
+    before: float | None
+    race: float | None
+
+
+class ProgressOut(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    target_s: float | None
+    race_day: date | None
+    estimates: list[EstimateOut]
+    parts: list[PartOut]
+
+
+@router.get("/goals/{goal_id}/progress", response_model=ProgressOut)
+def get_progress(session: SessionDep, goal_id: int) -> Progress:
+    return progress(session, find_goal(session, goal_id), date.today())
 
 
 @router.delete("/goals/{goal_id}/course", status_code=204)

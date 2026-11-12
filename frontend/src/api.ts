@@ -287,6 +287,24 @@ export type Projection = {
 }
 
 export const fetchProjection = (goalId: number) => request<Projection | null>(`/api/goals/${goalId}/projection`)
+export type ProgressPart = {
+  key: string
+  label: string
+  unit: string
+  basis: string
+  higher_is_better: boolean
+  now: number | null
+  before: number | null
+  race: number | null
+}
+export type Progress = {
+  target_s: number | null
+  race_day: string | null
+  estimates: { day: string; fast_s: number; slow_s: number }[]
+  parts: ProgressPart[]
+}
+
+export const fetchProgress = (goalId: number) => request<Progress>(`/api/goals/${goalId}/progress`)
 export const fetchCourse = (goalId: number) => request<Course | null>(`/api/goals/${goalId}/course`)
 export const uploadCourse = (goalId: number, file: File) =>
   request<Course>(`/api/goals/${goalId}/course`, {

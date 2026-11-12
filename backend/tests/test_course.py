@@ -9,8 +9,9 @@ from garmin_coach.coach.agent import Coach, coach_settings
 from garmin_coach.coach.tools import ToolContext, run_tool
 from garmin_coach.config import Settings
 from garmin_coach.course import CourseError, describe, parse_gpx, save_course
+from garmin_coach.metrics.progress import progress, target_seconds
 from garmin_coach.metrics.projection import project
-from garmin_coach.models import Activity, Goal, GoalCourse
+from garmin_coach.models import Activity, ActivityFuel, Climb, Goal, GoalCourse
 from garmin_coach.sync import SyncService
 from tests.apps import single_app
 from tests.garmin_data import FakeGarmin
@@ -175,3 +176,84 @@ def test_no_projection_without_long_runs(session: Session) -> None:
     session.add(goal)
     session.flush()
     assert project(session, goal, date(2026, 11, 10)) is None
+
+
+@pytest.mark.parametrize(
+    ("target", "seconds"),
+    [("under 5 hours", 18000), ("sub 4:30", 16200), ("4,5 h", 16200), ("finish", None)],
+)
+def test_target_time_is_read_from_the_goal_text(target: str, seconds: float | None) -> None:
+    assert target_seconds(target) == seconds
+
+
+def test_progress_compares_now_with_12_weeks_ago(session: Session) -> None:
+    today = date(2026, 11, 10)
+    row = stored(session, gpx())
+    goal = session.get(Goal, row.goal_id)
+    assert goal is not None
+    goal.target = "under 2 hours"
+    long_run(session, 1, date(2026, 7, 20), km=10, gain=200, hours=1.5)
+    long_run(session, 2, date(2026, 11, 1), km=20, gain=1000, hours=3.0)
+    session.add(ActivityFuel(activity_id=2, carbs_g=150, updated_at=datetime(2026, 11, 1)))
+    session.add_all(
+        Climb(
+            activity_id=2,
+            start_lat=60,
+            start_lon=10,
+            length_m=2000,
+            gain_m=gain,
+            seconds=1200,
+            track=[],
+        )
+        for gain in (200, 200, 240, 240)
+    )
+    session.flush()
+    found = progress(session, goal, today)
+    parts = {part.key: part for part in found.parts}
+
+    assert found.target_s == 2 * 3600
+    assert found.estimates[-1].day == today
+    assert found.estimates[-1].fast_s < found.estimates[0].fast_s
+    assert parts["longest"].now == 30
+    assert parts["longest"].before == 12
+    assert parts["longest"].race == pytest.approx(30, rel=0.02)
+    assert parts["volume"].now == pytest.approx(5)
+    assert parts["descent"].race == pytest.approx(600, rel=0.02)
+    assert parts["climb_rate"].now == pytest.approx(720)
+    assert parts["climb_rate"].before is None
+    assert parts["fueling"].now == pytest.approx(50)
+    assert parts["durability"].now is None
+    needed = found.seconds_per_week_needed
+    assert needed is not None and needed > 0
+
+    ctx = ToolContext(session=session, now=datetime(2026, 11, 10, 12), trimp_coefficient=1.92)
+    text, ok = run_tool(ctx, "get_goal_progress", {})
+    assert ok
+    assert (
+        "Longest day: now 30 effort-km, 12 weeks ago 12 effort-km, the race has 30 effort-km"
+        in text
+    )
+    assert "Target time 2 h 00 min" in text
+
+    flat = session.get(Activity, 1)
+    hilly = session.get(Activity, 2)
+    assert flat is not None and hilly is not None
+    flat.elevation_gain_m, flat.decoupling_pct = 50, 6.0
+    hilly.decoupling_pct = -20.0
+    session.flush()
+    assert {p.key: p for p in progress(session, goal, today).parts}["durability"].before == 6.0
+
+
+def test_progress_over_the_api(sessions: sessionmaker[Session]) -> None:
+    def make_service() -> SyncService:
+        return SyncService(FakeGarmin([]), sessions, request_delay=0, sleep=lambda _: None)
+
+    coach = Coach(sessions, None, coach_settings(Settings.model_construct()))
+    client = TestClient(single_app(sessions, make_service, coach))
+    goal = {"kind": "race", "title": "Race", "distance_km": 60, "target": "5:30"}
+    goal_id = client.post("/api/goals", json=goal).json()["id"]
+    body = client.get(f"/api/goals/{goal_id}/progress").json()
+    assert body["target_s"] == 19800
+    assert body["estimates"] == []
+    assert [part["key"] for part in body["parts"]][:2] == ["volume", "longest"]
+    assert body["parts"][1]["race"] == 60

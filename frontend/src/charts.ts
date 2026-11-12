@@ -1,6 +1,6 @@
 import type { EChartsCoreOption } from 'echarts/core'
-import type { Course, DaySpend, GroupTotals, HrZone, HrvPoint, Load, Trends, ZoneWeek } from './api'
-import { addDays, number, shortDate } from './format'
+import type { Course, DaySpend, GroupTotals, HrZone, HrvPoint, Load, Progress, Trends, ZoneWeek } from './api'
+import { addDays, duration, number, shortDate } from './format'
 import { SPORT_GROUPS, displayGroup, type Theme } from './theme'
 
 export const MUSCLES = [
@@ -492,6 +492,117 @@ export function courseOption(theme: Theme, course: Course): EChartsCoreOption {
           data: course.waypoints.map((waypoint) => ({ name: waypoint.name, xAxis: waypoint.km })),
         },
       },
+    ],
+  }
+}
+
+const HOUR_S = 3600
+
+export function progressOption(theme: Theme, progress: Progress): EChartsCoreOption {
+  const color = theme.series(1)
+  const { estimates, target_s: target, race_day: raceDay } = progress
+  const latest = estimates[estimates.length - 1]
+  const lastDay = raceDay !== null && raceDay > latest.day ? raceDay : latest.day
+  const fastest = Math.min(...estimates.map((e) => e.fast_s), target ?? Infinity)
+  const slowest = Math.max(...estimates.map((e) => e.slow_s))
+  const needed = target !== null && raceDay !== null && raceDay > latest.day && latest.fast_s > target
+  const legend = base(theme, true).legend
+  return {
+    ...base(theme, true),
+    legend: {
+      ...legend,
+      data: ['Fast end', 'Range to the slow end', ...(target === null ? [] : ['Target']), ...(needed ? ['Needed'] : [])],
+    },
+    tooltip: {
+      ...base(theme, true).tooltip,
+      trigger: 'axis',
+      axisPointer: { type: 'line', lineStyle: { color: theme.baseline } },
+      formatter: (params: { seriesName: string; dataIndex: number }[]) => {
+        const hit = params.find((p) => p.seriesName === 'Fast end')
+        if (hit === undefined) return ''
+        const estimate = estimates[hit.dataIndex]
+        return (
+          `<div style="opacity:.75">${shortDate(estimate.day)}</div>` +
+          tooltipRow(color, 'Finish estimate', `${duration(estimate.fast_s)} to ${duration(estimate.slow_s)}`)
+        )
+      },
+    },
+    xAxis: {
+      type: 'time',
+      min: estimates[0].day,
+      max: lastDay,
+      ...axisStyle(theme),
+      splitLine: { show: false },
+    },
+    yAxis: {
+      type: 'value',
+      min: Math.floor(fastest / HOUR_S - 0.25),
+      max: Math.ceil(slowest / HOUR_S),
+      ...axisStyle(theme),
+      axisLine: { show: false },
+      axisLabel: { ...axisStyle(theme).axisLabel, formatter: (hours: number) => `${number(hours, 1)} h` },
+    },
+    series: [
+      {
+        name: 'band-floor',
+        type: 'line',
+        stack: 'band',
+        showSymbol: false,
+        silent: true,
+        lineStyle: { opacity: 0 },
+        data: estimates.map((e) => [e.day, e.fast_s / HOUR_S]),
+      },
+      {
+        name: 'Range to the slow end',
+        type: 'line',
+        stack: 'band',
+        showSymbol: false,
+        silent: true,
+        lineStyle: { opacity: 0 },
+        itemStyle: { color },
+        areaStyle: { color, opacity: 0.12 },
+        data: estimates.map((e) => [e.day, (e.slow_s - e.fast_s) / HOUR_S]),
+      },
+      {
+        name: 'Fast end',
+        type: 'line',
+        showSymbol: false,
+        lineStyle: { width: 2, color },
+        itemStyle: { color },
+        data: estimates.map((e) => [e.day, e.fast_s / HOUR_S]),
+      },
+      ...(target === null
+        ? []
+        : [
+            {
+              name: 'Target',
+              type: 'line',
+              showSymbol: false,
+              silent: true,
+              lineStyle: { width: 1, color: theme.textSecondary },
+              itemStyle: { color: theme.textSecondary },
+              data: [
+                [estimates[0].day, target / HOUR_S],
+                [lastDay, target / HOUR_S],
+              ],
+            },
+          ]),
+      ...(needed
+        ? [
+            {
+              name: 'Needed',
+              type: 'line',
+              showSymbol: false,
+              silent: true,
+              lineStyle: { width: 1, type: 'dashed', color },
+              itemStyle: { color },
+              data: [
+                [latest.day, latest.fast_s / HOUR_S],
+                [raceDay, (target as number) / HOUR_S],
+              ],
+            },
+          ]
+        : []),
     ],
   }
 }

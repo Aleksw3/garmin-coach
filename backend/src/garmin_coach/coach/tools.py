@@ -34,6 +34,7 @@ from garmin_coach.garmin.workouts import find_exercises
 from garmin_coach.metrics.fueling import LONG_ENOUGH_TO_FUEL_S, fuel_text
 from garmin_coach.metrics.hills import find_hills
 from garmin_coach.metrics.load import training_load
+from garmin_coach.metrics.progress import progress, progress_text
 from garmin_coach.metrics.projection import project, projection_text
 from garmin_coach.metrics.rating import rating_text
 from garmin_coach.metrics.recovery import hrv_baseline, resting_hr_baseline
@@ -572,16 +573,27 @@ def get_fueling(ctx: ToolContext, args: DateRange) -> str:
     )
 
 
-def get_race_projection(ctx: ToolContext, args: GoalId) -> str:
-    goal = (
-        ctx.session.get(Goal, args.goal_id)
-        if args.goal_id is not None
-        else ctx.session.scalars(
-            select(Goal)
-            .where(Goal.status == "active", Goal.kind == "race")
-            .order_by(Goal.priority, Goal.target_date)
-        ).first()
+def race_goal(ctx: ToolContext, goal_id: int | None) -> Goal | None:
+    if goal_id is not None:
+        return ctx.session.get(Goal, goal_id)
+    return ctx.session.scalars(
+        select(Goal)
+        .where(Goal.status == "active", Goal.kind == "race")
+        .order_by(Goal.priority, Goal.target_date)
+    ).first()
+
+
+def get_goal_progress(ctx: ToolContext, args: GoalId) -> str:
+    goal = race_goal(ctx, args.goal_id)
+    if goal is None:
+        return "No such goal"
+    return "\n".join(
+        [f"goal {goal.id} {goal.title}", *progress_text(progress(ctx.session, goal, ctx.today))]
     )
+
+
+def get_race_projection(ctx: ToolContext, args: GoalId) -> str:
+    goal = race_goal(ctx, args.goal_id)
     if goal is None:
         return "No such goal"
     projection = project(ctx.session, goal, ctx.today)
@@ -888,6 +900,15 @@ TOOLS = (
         "it for pacing and to check cutoffs.",
         GoalId,
         get_race_projection,
+    ),
+    Tool(
+        "get_goal_progress",
+        "Long-term progress toward a race goal: the finish estimate now and 12 weeks ago "
+        "against the target time, and the parts of the race (volume, longest day, descent, "
+        "climb speed, heart rate drift on long runs, fueling) now and 12 weeks ago against "
+        "what the race has.",
+        GoalId,
+        get_goal_progress,
     ),
     Tool(
         "get_plan",

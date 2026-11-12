@@ -9,6 +9,7 @@ import {
   fetchGoals,
   fetchNotes,
   fetchProfile,
+  fetchProgress,
   fetchProjection,
   saveProfile,
   updateGoal,
@@ -18,10 +19,11 @@ import {
   type Goal,
   type GoalInput,
   type Profile,
+  type ProgressPart,
   type Projection,
 } from '../api'
-import { courseOption } from '../charts'
-import { Card } from '../components/Card'
+import { courseOption, progressOption } from '../charts'
+import { Card, DataTable } from '../components/Card'
 import { Chart } from '../components/Chart'
 import { duration, number, shortDate } from '../format'
 import { useTheme } from '../theme'
@@ -261,6 +263,73 @@ function ProjectionSection({ goal, courseKey }: { goal: Goal; courseKey: string 
   )
 }
 
+function amount(part: ProgressPart, value: number | null): string {
+  return value === null ? 'no data' : `${number(value, part.unit === '%' ? 1 : 0)} ${part.unit}`
+}
+
+function ProgressSection({ goal, courseKey }: { goal: Goal; courseKey: string }) {
+  const theme = useTheme()
+  const progress = useQuery({
+    queryKey: ['progress', goal.id, goal.target, goal.target_date, goal.distance_km, goal.elevation_gain_m, courseKey],
+    queryFn: () => fetchProgress(goal.id),
+  })
+  const data = progress.data
+  const option = useMemo(
+    () => (data && data.estimates.length > 0 ? progressOption(theme, data) : null),
+    [theme, data],
+  )
+  if (!data) return null
+  const latest = data.estimates[data.estimates.length - 1]
+  const weeksLeft = data.race_day && latest ? (Date.parse(data.race_day) - Date.parse(latest.day)) / (7 * 86_400_000) : 0
+  const gap = latest && data.target_s !== null ? latest.fast_s - data.target_s : null
+  return (
+    <details className="text-sm text-secondary">
+      <summary className="cursor-pointer">
+        Progress
+        {gap !== null && gap > 0 && `: ${duration(gap)} from the target of ${duration(data.target_s)}`}
+        {gap !== null && gap <= 0 && `: the estimate is inside the target of ${duration(data.target_s)}`}
+      </summary>
+      <div className="mt-2 space-y-3 text-xs">
+        {option && (
+          <>
+            <Chart option={option} label="Finish estimate over the last year against the target time" />
+            <p className="text-muted">
+              {gap !== null && gap > 0 && weeksLeft > 0 && (
+                <>
+                  The fast end has to drop by about {number(gap / 60 / weeksLeft, 1)} minutes per week to reach the
+                  target on race day.{' '}
+                </>
+              )}
+              The estimate uses your 3 fastest long runs or hikes of the last 180 days, so it jumps when a fast run
+              enters or leaves that window. A change of a few minutes is not a change in fitness.
+            </p>
+          </>
+        )}
+        <DataTable
+          columns={['Part', 'Now', '12 weeks ago', 'The race']}
+          rows={data.parts.map((part) => [
+            part.label,
+            amount(part, part.now),
+            amount(part, part.before),
+            part.race === null ? '–' : amount(part, part.race),
+          ])}
+        />
+        <details className="text-muted">
+          <summary className="cursor-pointer">How each part is measured</summary>
+          <ul className="mt-1 space-y-0.5">
+            {data.parts.map((part) => (
+              <li key={part.key}>
+                {part.label}: {part.basis}.
+              </li>
+            ))}
+            <li>No measure covers technique on rough ground.</li>
+          </ul>
+        </details>
+      </div>
+    </details>
+  )
+}
+
 function CourseSection({ goal }: { goal: Goal }) {
   const queryClient = useQueryClient()
   const key = ['course', goal.id]
@@ -273,9 +342,11 @@ function CourseSection({ goal }: { goal: Goal }) {
     mutationFn: () => deleteCourse(goal.id),
     onSuccess: () => queryClient.setQueryData(key, null),
   })
+  const courseKey = course.data ? `${course.data.distance_km} ${course.data.gain_m}` : ''
   return (
     <div className="space-y-2 pt-1">
-      <ProjectionSection goal={goal} courseKey={course.data ? `${course.data.distance_km} ${course.data.gain_m}` : ''} />
+      <ProjectionSection goal={goal} courseKey={courseKey} />
+      <ProgressSection goal={goal} courseKey={courseKey} />
       {course.data && <CourseProfile course={course.data} />}
       <div className="flex flex-wrap items-center gap-3 text-xs">
         <label className="cursor-pointer text-accent">

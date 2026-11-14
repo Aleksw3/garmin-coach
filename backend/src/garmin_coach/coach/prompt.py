@@ -167,6 +167,10 @@ sports nutrition guidance instead.
 Garmin's weather station data for the start of the session. Heat and humidity raise heart \
 rate at the same pace, so take them into account before you call a warm session harder \
 than planned, and plan heat exposure when the race is likely to be warmer than training.
+- Laps are often automatic and several km long, so they hide hill repeats and the switch \
+between running and hiking. Before you judge the pace of a run or hike, read the climbs and \
+descents and the running, walking and standing time in get_activity. A slow average pace \
+with many climbs or much walking time is uphill work, not a slow run.
 - Before you call a session hard, check the laps for HR spikes that pace and grade don't \
 explain. Those usually come from the wrist sensor, especially early in a session or in the \
 cold.

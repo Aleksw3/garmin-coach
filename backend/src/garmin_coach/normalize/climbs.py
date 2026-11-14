@@ -35,6 +35,15 @@ class Point:
     seconds: float
 
 
+@dataclass(frozen=True)
+class Slope:
+    start_s: float
+    length_m: float
+    change_m: float
+    seconds: float
+    avg_hr: float | None
+
+
 def track_points(details: dict[str, Any] | None) -> list[Point]:
     if not details:
         return []
@@ -139,9 +148,13 @@ def find_climbs(activity_id: int, details: dict[str, Any] | None) -> list[Climb]
     return climbs
 
 
+def descent_ranges(profile: list[Point]) -> list[tuple[int, int]]:
+    upside_down = [replace(point, elevation=-point.elevation) for point in profile]
+    return climb_ranges(upside_down)
+
+
 def find_descents(activity_id: int, details: dict[str, Any] | None) -> list[Descent]:
     profile = even_profile(track_points(details))
-    upside_down = [replace(point, elevation=-point.elevation) for point in profile]
     return [
         Descent(
             activity_id=activity_id,
@@ -149,8 +162,39 @@ def find_descents(activity_id: int, details: dict[str, Any] | None) -> list[Desc
             drop_m=profile[top].elevation - profile[bottom].elevation,
             seconds=profile[bottom].seconds - profile[top].seconds,
         )
-        for top, bottom in climb_ranges(upside_down)
+        for top, bottom in descent_ranges(profile)
     ]
+
+
+def timed_heart_rate(details: dict[str, Any] | None) -> list[tuple[float, float]]:
+    if not details:
+        return []
+    index = {d["key"]: d["metricsIndex"] for d in details.get("metricDescriptors") or []}
+    time_at, hr_at = index.get("sumDuration"), index.get("directHeartRate")
+    if time_at is None or hr_at is None:
+        return []
+    rows = [row["metrics"] for row in details.get("activityDetailMetrics") or []]
+    return [(row[time_at], row[hr_at]) for row in rows if row[time_at] is not None and row[hr_at]]
+
+
+def slopes(details: dict[str, Any] | None) -> list[Slope]:
+    """The climbs and descents of one activity in the order they happened."""
+    profile = even_profile(track_points(details))
+    heart_rate = timed_heart_rate(details)
+    result = []
+    for first, last in sorted(climb_ranges(profile) + descent_ranges(profile)):
+        start, end = profile[first], profile[last]
+        beats = [hr for seconds, hr in heart_rate if start.seconds <= seconds <= end.seconds]
+        result.append(
+            Slope(
+                start_s=start.seconds,
+                length_m=end.distance - start.distance,
+                change_m=end.elevation - start.elevation,
+                seconds=end.seconds - start.seconds,
+                avg_hr=statistics.fmean(beats) if beats else None,
+            )
+        )
+    return result
 
 
 def add_climbs(

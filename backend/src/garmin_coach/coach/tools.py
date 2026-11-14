@@ -9,6 +9,7 @@ from pydantic import BaseModel, ConfigDict, Field, ValidationError, model_valida
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
+from garmin_coach import raw_store
 from garmin_coach.coach.plan import (
     Change,
     NewPlan,
@@ -64,6 +65,7 @@ from garmin_coach.models import (
     PlannedSession,
     SessionMatch,
 )
+from garmin_coach.normalize.climbs import CLIMB_GROUPS, Slope, slopes
 from garmin_coach.normalize.sports import OTHER, sport_groups
 from garmin_coach.reports import format_weekly_totals, week_start, weekly_totals
 from garmin_coach.sync import LAST_SYNC, get_state
@@ -75,6 +77,8 @@ MAX_WELLNESS_DAYS = 92
 MAX_ACTIVITIES = 150
 RUNNING_GROUPS = ("run", "vertical")
 MAX_LAPS = 40
+MAX_SLOPES = 60
+MOVEMENT_SPLITS = {"RWD_RUN": "running", "RWD_WALK": "walking", "RWD_STAND": "standing"}
 MAX_NOTES = 50
 MAX_EXERCISES = 40
 TERRAIN_GROUPS = ("run", "vertical")
@@ -226,8 +230,8 @@ def number(value: float | None, unit: str, digits: int = 0) -> str | None:
 def pace(speed_mps: float | None) -> str | None:
     if not speed_mps:
         return None
-    seconds = 1000 / speed_mps
-    return f"{int(seconds // 60)}:{round(seconds % 60):02d} /km"
+    seconds = round(1000 / speed_mps)
+    return f"{seconds // 60}:{seconds % 60:02d} /km"
 
 
 def joined(parts: list[str | None]) -> str:
@@ -259,6 +263,71 @@ def activity_line(
             number(activity.temperature_c, "°C"),
         ]
     )
+
+
+def movement_line(summary: dict[str, Any] | None) -> str | None:
+    splits = {
+        split.get("splitType"): split for split in (summary or {}).get("splitSummaries") or []
+    }
+    parts = []
+    for split_type, label in MOVEMENT_SPLITS.items():
+        split = splits.get(split_type)
+        if not split or not split.get("duration"):
+            continue
+        moved = label != "standing"
+        distance_m = split.get("distance")
+        parts.append(
+            ", ".join(
+                part
+                for part in [
+                    f"{label} {hours_minutes(split['duration'])} h",
+                    number(distance_m / 1000, "km", 1) if moved and distance_m else None,
+                    number(split.get("totalAscent"), "m up") if moved else None,
+                    number(split.get("elevationLoss"), "m down") if moved else None,
+                ]
+                if part
+            )
+        )
+    if not parts:
+        return None
+    return "Garmin's split of the session into running, walking and standing: " + " | ".join(parts)
+
+
+def slope_line(slope: Slope) -> str:
+    up = slope.change_m > 0
+    height = abs(slope.change_m)
+    return joined(
+        [
+            "up" if up else "down",
+            f"at {hours_minutes(slope.start_s)}",
+            f"{slope.length_m:.0f} m long",
+            f"{height:.0f} m {'up' if up else 'down'}",
+            f"{100 * height / slope.length_m:.0f}%",
+            minutes_seconds(slope.seconds),
+            pace(slope.length_m / slope.seconds) if slope.seconds else None,
+            f"{3600 * height / slope.seconds:.0f} m/h" if up and slope.seconds else None,
+            number(slope.avg_hr, "bpm"),
+        ]
+    )
+
+
+def counted(count: int, noun: str) -> str:
+    return f"{count} {noun}" if count == 1 else f"{count} {noun}s"
+
+
+def slope_lines(found: list[Slope]) -> list[str]:
+    if not found:
+        return []
+    climbs = [slope.change_m for slope in found if slope.change_m > 0]
+    descents = [-slope.change_m for slope in found if slope.change_m < 0]
+    header = (
+        f"Climbs and descents found in the GPS track, in the order they happened: "
+        f"{counted(len(climbs), 'climb')} with {sum(climbs):.0f} m up and "
+        f"{counted(len(descents), 'descent')} with {sum(descents):.0f} m down"
+    )
+    if len(found) > MAX_SLOPES:
+        header += f", showing the first {MAX_SLOPES}"
+    return [f"{header}:", *("  " + slope_line(slope) for slope in found[:MAX_SLOPES])]
 
 
 def list_activities(ctx: ToolContext, args: ActivityQuery) -> str:
@@ -352,6 +421,11 @@ def get_activity(ctx: ToolContext, args: ActivityId) -> str:
             f"to {activity.drift_second_hr:.0f} in the second: drift {activity.hr_drift_pct:.1f}%"
             f"{decoupling}. Only meaningful for steady efforts"
         )
+    movement = movement_line(raw_store.get_activity(ctx.session, activity.id, "summary"))
+    if movement:
+        lines.append(movement)
+    if activity_group(activity, groups) in CLIMB_GROUPS:
+        lines += slope_lines(slopes(raw_store.get_activity(ctx.session, activity.id, "details")))
     laps = ctx.session.scalars(
         select(ActivityLap)
         .where(ActivityLap.activity_id == activity.id)
@@ -368,9 +442,13 @@ def get_activity(ctx: ToolContext, args: ActivityId) -> str:
                         number(None if lap.distance_m is None else lap.distance_m / 1000, "km", 2),
                         f"{hours_minutes(lap.duration_s)}",
                         pace(lap.avg_speed_mps),
+                        f"grade-adjusted {pace(lap.avg_grade_adjusted_speed_mps)}"
+                        if lap.avg_grade_adjusted_speed_mps
+                        else None,
                         number(lap.elevation_gain_m, "m up"),
                         number(lap.elevation_loss_m, "m down"),
                         number(lap.avg_hr, "bpm"),
+                        number(lap.avg_power_w, "W"),
                         lap.intensity_type,
                     ]
                 )
@@ -871,8 +949,10 @@ class Tool:
 TOOLS = (
     Tool(
         "get_activity",
-        "One activity in detail: pace, grade-adjusted pace, HR and power zones, laps, "
-        "strength sets with reps and weight, and the athlete's own rating of the session.",
+        "One activity in detail: pace, grade-adjusted pace, HR and power zones, time spent "
+        "running, walking and standing, every climb and descent with gradient, climb speed and "
+        "HR, laps with grade-adjusted pace and power, strength sets with reps and weight, and "
+        "the athlete's own rating of the session.",
         ActivityId,
         get_activity,
     ),

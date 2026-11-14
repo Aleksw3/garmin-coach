@@ -21,7 +21,7 @@ from garmin_coach.normalize import normalize_activity
 from garmin_coach.normalize.climbs import scan_missing_climbs, scan_missing_descents
 from garmin_coach.sync import SyncService
 from tests.apps import single_app
-from tests.garmin_data import FakeGarmin, activity_summary
+from tests.garmin_data import FakeGarmin, activity_summary, splits
 
 TODAY = date(2026, 11, 4)
 START = (59.0, 5.5)
@@ -227,3 +227,35 @@ def test_hills_endpoint(client: TestClient) -> None:
 def test_hills_endpoint_needs_one_repeat_length(client: TestClient) -> None:
     assert client.get("/api/hills", params={"grade": 8}).status_code == 422
     assert client.get("/api/hills", params={"minutes": 3, "meters": 400}).status_code == 422
+
+
+def test_the_coach_sees_each_climb_and_descent_and_the_walking_time(session: Session) -> None:
+    track = details()
+    track["metricDescriptors"].append({"key": "directHeartRate", "metricsIndex": len(FIELDS)})
+    for row in track["activityDetailMetrics"]:
+        row["metrics"].append(150.0)
+    summary = activity_summary(1, "2026-10-20 07:00:00")
+    summary["splitSummaries"] = [
+        {"splitType": "RWD_WALK", "duration": 1500.0, "distance": 2000.0, "totalAscent": 70.0},
+        {"splitType": "RWD_STAND", "duration": 120.0, "distance": 30.0},
+        {"splitType": "INTERVAL_ACTIVE", "duration": 3600.0, "distance": 10000.0},
+    ]
+    raw_store.put_activity(session, 1, "summary", summary)
+    raw_store.put_activity(session, 1, "details", track)
+    raw_store.put_activity(session, 1, "splits", splits())
+    normalize_activity(session, 1)
+    session.flush()
+
+    detail, ok = run_tool(
+        ToolContext(session, datetime(2026, 11, 4, 12), 1.92), "get_activity", {"activity_id": 1}
+    )
+
+    assert ok
+    assert "walking 0:25 h, 2.0 km, 70 m up | standing 0:02 h" in detail
+    assert "1 climb with 78 m up and 1 descent with 78 m down" in detail
+    assert (
+        "  up | at 0:03 | 1040 m long | 78 m up | 8% | 6:56 | 6:40 /km | 676 m/h | 150 bpm"
+        in detail
+    )
+    assert "  down | at 0:10 | 1040 m long | 78 m down | 8% | 6:56 | 6:40 /km | 150 bpm" in detail
+    assert "grade-adjusted 5:23 /km | 200 m up | 50 m down | 135 bpm" in detail

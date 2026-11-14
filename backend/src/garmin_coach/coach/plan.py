@@ -106,7 +106,11 @@ class NewPlan(BaseModel):
     title: str = Field(min_length=1, max_length=200)
     goal_id: int | None = None
     description: str | None = Field(
-        default=None, max_length=4000, description="The block's purpose, structure and progression"
+        default=None,
+        max_length=4000,
+        description="Plain text, no markdown. First sentence: what the block is for, under 20 words, "
+        "shown alone as the summary. Then one short sentence per topic, each starting with a label "
+        "and a colon, for example 'Structure: ...', 'Hours: ...', 'Week 3: ...', 'Fueling: ...'",
     )
     sessions: list[SessionSpec] = Field(min_length=1, max_length=MAX_SESSIONS)
 

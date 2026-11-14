@@ -61,6 +61,38 @@ function seasonTargets(week: SeasonWeekSpec): string {
     .join(', ')
 }
 
+function descriptionParts(description: string): { summary: string; points: string[] } {
+  const [first, ...points] = description
+    .replace(/([.!?])\s+(?=[A-Z])/g, '$1\n')
+    .split('\n')
+    .map((line) => line.replace(/^[-*]\s+/, '').trim())
+    .filter(Boolean)
+  const summary = first.replace(/^Purpose:\s+/, '')
+  return { summary: summary.charAt(0).toUpperCase() + summary.slice(1), points }
+}
+
+function DescriptionPoints({ points }: { points: string[] }) {
+  return (
+    <ul className="mt-2 list-disc space-y-1 pl-5 text-secondary">
+      {points.map((point, index) => {
+        const labelled = point.match(/^([^:.]{1,40}):\s+(.*)$/)
+        return (
+          <li key={index}>
+            {labelled ? (
+              <>
+                <span className="font-semibold text-primary">{labelled[1]}.</span>{' '}
+                {labelled[2].charAt(0).toUpperCase() + labelled[2].slice(1)}
+              </>
+            ) : (
+              point
+            )}
+          </li>
+        )
+      })}
+    </ul>
+  )
+}
+
 function ChangeLine({ change }: { change: ProposalChange }) {
   if (change.op === 'add' && change.session) {
     return <>Add: {sessionLine(change.session)}</>
@@ -88,6 +120,7 @@ function ProposalCard({ proposal }: { proposal: Proposal }) {
   const accept = useMutation({ mutationFn: () => acceptProposal(proposal.id), onSuccess: refresh })
   const reject = useMutation({ mutationFn: () => rejectProposal(proposal.id), onSuccess: refresh })
   const sessions = proposal.plan?.sessions ?? []
+  const about = proposal.plan?.description ? descriptionParts(proposal.plan.description) : null
   const error = accept.error ?? reject.error
   return (
     <Card title={proposal.summary} subtitle={`Proposed ${shortDate(proposal.created_at)}, waiting for you`}>
@@ -95,8 +128,11 @@ function ProposalCard({ proposal }: { proposal: Proposal }) {
       {proposal.plan && (
         <div className="mt-3 text-sm">
           <p className="font-semibold text-primary">{proposal.plan.title}</p>
-          {proposal.plan.description && (
-            <p className="mt-1 whitespace-pre-wrap text-secondary">{proposal.plan.description}</p>
+          {about && (
+            <>
+              <p className="mt-1 text-secondary">{about.summary}</p>
+              {about.points.length > 0 && <DescriptionPoints points={about.points} />}
+            </>
           )}
           <details className="mt-2" open={sessions.length <= 14}>
             <summary className="cursor-pointer text-xs text-muted select-none">
@@ -511,15 +547,21 @@ export function PlanPage() {
       {proposals.data?.map((proposal) => (
         <ProposalCard key={proposal.id} proposal={proposal} />
       ))}
-      {data?.plans.map((plan) => (
-        <details key={plan.id} className="text-sm">
-          <summary className="cursor-pointer text-secondary select-none">
-            <span className="font-semibold text-primary">{plan.title}</span>, {shortDate(plan.start_date)} to{' '}
-            {shortDate(plan.end_date)}
-          </summary>
-          {plan.description && <p className="mt-1 whitespace-pre-wrap text-secondary">{plan.description}</p>}
-        </details>
-      ))}
+      {data?.plans.map((plan) => {
+        const about = plan.description ? descriptionParts(plan.description) : null
+        const current = plan.start_date <= today && today <= plan.end_date
+        return (
+          <details key={plan.id} className="text-sm">
+            <summary className="cursor-pointer text-secondary select-none">
+              <span className="font-semibold text-primary">{plan.title}</span>, {shortDate(plan.start_date)} to{' '}
+              {shortDate(plan.end_date)}
+              {current && <span className="ml-2 text-xs font-semibold text-accent">Now</span>}
+              {about && <span className="mt-0.5 block text-xs text-secondary">{about.summary}</span>}
+            </summary>
+            {about && about.points.length > 0 && <DescriptionPoints points={about.points} />}
+          </details>
+        )
+      })}
       {futureSessions === 0 && !calendar.isPending && <PlanRequest />}
       <AwayDays periods={away.data ?? []} first={first} last={last} />
       <div className="flex flex-wrap items-center gap-2" role="group" aria-label="Weeks shown">

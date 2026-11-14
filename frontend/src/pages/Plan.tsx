@@ -337,10 +337,11 @@ function WeekRow({
   const plannedMinutes = sessions
     .filter((s) => !s.skipped)
     .reduce((sum, s) => sum + (s.duration_min ?? 0), 0)
+  const thisMonday = mondayOf(today)
   return (
-    <section className="min-w-0">
-      <h3 className="mb-2 text-sm font-semibold text-primary">
-        Week from {shortDate(monday)}
+    <details className="min-w-0" open={monday >= thisMonday}>
+      <summary className="mb-2 cursor-pointer text-sm font-semibold text-primary select-none">
+        {monday === thisMonday ? 'This week' : `Week from ${shortDate(monday)}`}
         <span className="ml-2 text-xs font-normal text-muted">
           planned {duration(plannedMinutes * 60)}, done {duration(doneSeconds)}
         </span>
@@ -350,7 +351,7 @@ function WeekRow({
             {season.focus ? `. ${season.focus}` : ''}
           </span>
         )}
-      </h3>
+      </summary>
       <div className="grid gap-2 md:grid-cols-7">
         {days.map((day) => {
           const daySessions = sessions.filter((s) => s.day === day)
@@ -360,10 +361,10 @@ function WeekRow({
           return (
             <div
               key={day}
-              className={`min-w-0 rounded-lg p-1.5 ${day === today ? 'bg-raised' : ''} ${empty ? 'hidden md:block' : ''}`}
+              className={`min-w-0 rounded-lg border p-1.5 ${day === today ? 'border-accent bg-raised' : 'border-transparent'} ${empty ? 'hidden md:block' : ''}`}
             >
-              <p className={`mb-1 text-xs ${day === today ? 'font-semibold text-primary' : 'text-muted'}`}>
-                {dayLabel(day)}
+              <p className={`mb-1 text-xs ${day === today ? 'font-semibold text-accent' : 'text-muted'}`}>
+                {day === today ? `Today, ${dayLabel(day)}` : dayLabel(day)}
               </p>
               <div className="space-y-1.5">
                 {dayAway.map((period) => (
@@ -382,7 +383,7 @@ function WeekRow({
           )
         })}
       </div>
-    </section>
+    </details>
   )
 }
 

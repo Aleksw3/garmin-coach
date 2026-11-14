@@ -67,7 +67,7 @@ function Composer({ disabled, onSend }: { disabled: boolean; onSend: (text: stri
     setText('')
   }
   const onKeyDown = (event: KeyboardEvent<HTMLTextAreaElement>) => {
-    if (event.key === 'Enter' && !event.shiftKey) submit(event)
+    if (event.key === 'Enter' && (event.ctrlKey || event.metaKey)) submit(event)
   }
   return (
     <form

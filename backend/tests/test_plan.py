@@ -21,6 +21,7 @@ from garmin_coach.models import (
     ThresholdTest,
 )
 from garmin_coach.normalize import rebuild_all
+from garmin_coach.normalize.activities import normalize_activity
 from garmin_coach.sync import SyncService
 from tests.apps import single_app
 from tests.garmin_data import FakeGarmin, activity_summary, exercise_sets
@@ -277,6 +278,46 @@ def test_rating_is_saved_and_shown_to_the_coach(plan: sessionmaker[Session]) -> 
         )
     assert "own rating: effort 7/10, legs 4/5 (sore), pain: left knee" in detail
     assert "felt 7/10" in listing
+
+
+def test_climbing_entered_by_hand_replaces_garmins_until_it_is_cleared(
+    plan: sessionmaker[Session],
+) -> None:
+    def make_service() -> SyncService:
+        return SyncService(FakeGarmin([]), plan, request_delay=0, sleep=lambda _: None)
+
+    coach = Coach(plan, None, coach_settings(Settings.model_construct()))
+    client = TestClient(single_app(plan, make_service, coach, schedule_sync=False))
+    measured = client.get("/api/activities/12").json()["elevation_gain_m"]
+
+    assert (
+        client.put("/api/activities/12/elevation", json={"elevation_gain_m": 640}).status_code
+        == 204
+    )
+    with plan() as session:
+        normalize_activity(session, 12)
+        session.commit()
+        listing, _ = run_tool(
+            ToolContext(session, NOW, 1.92),
+            "list_activities",
+            {"start": "2026-10-26", "end": "2026-10-30"},
+        )
+    assert client.get("/api/activities/12").json()["elevation_gain_m"] == 640
+    assert "640 m up, entered by hand" in listing
+
+    client.put("/api/activities/12/elevation", json={"elevation_gain_m": None})
+    assert client.get("/api/activities/12").json()["elevation_gain_m"] == measured
+
+    with plan() as session:
+        saved, ok = run_tool(
+            ToolContext(session, NOW, 1.92),
+            "set_activity_climbing",
+            {"activity_id": 12, "elevation_gain_m": 350},
+        )
+        session.commit()
+    assert ok
+    assert "350 m up, entered by hand" in saved
+    assert client.get("/api/activities/12").json()["elevation_gain_override_m"] == 350
 
 
 def test_fueling_is_saved_and_shown_to_the_coach(plan: sessionmaker[Session]) -> None:

@@ -510,6 +510,7 @@ export type ActivityDetail = Activity & {
   anaerobic_training_effect: number | null
   training_effect_label: string | null
   location_name: string | null
+  elevation_gain_override_m: number | null
   laps: Lap[]
   zones: { kind: string; zone: number; seconds: number; low_boundary: number | null }[]
   sets: StrengthSetRow[]
@@ -522,6 +523,9 @@ export type ActivityDetail = Activity & {
 export type Rating = { effort: number | null; legs: number | null; pain: string | null; note: string | null }
 
 export type Fuel = { carbs_g: number | null; fluid_ml: number | null; gut: string | null; note: string | null }
+
+export const setElevation = (id: number, elevation_gain_m: number | null) =>
+  send(`/api/activities/${id}/elevation`, json('PUT', { elevation_gain_m }))
 
 export const logFuel = (id: number, fuel: Fuel) => request<Fuel>(`/api/activities/${id}/fuel`, json('PUT', fuel))
 

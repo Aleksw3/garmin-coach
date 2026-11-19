@@ -61,6 +61,7 @@ class Activity(Base):
     lap_count: Mapped[int | None] = mapped_column(Integer)
     is_commute: Mapped[bool] = mapped_column(Boolean, default=False)
     commute_override: Mapped[bool | None] = mapped_column(Boolean)
+    elevation_gain_override_m: Mapped[float | None] = mapped_column(Float)
     drift_first_hr: Mapped[float | None] = mapped_column(Float)
     drift_second_hr: Mapped[float | None] = mapped_column(Float)
     hr_drift_pct: Mapped[float | None] = mapped_column(Float)

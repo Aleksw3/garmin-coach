@@ -18,6 +18,7 @@ const TOOL_LABELS: Record<string, string> = {
   get_wellness: 'Sleep and recovery',
   list_activities: 'Activities',
   save_note: 'Saved a note',
+  set_activity_climbing: 'Saved climbing for activity',
 }
 
 

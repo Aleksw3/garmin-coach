@@ -65,6 +65,7 @@ from garmin_coach.models import (
     PlannedSession,
     SessionMatch,
 )
+from garmin_coach.normalize.activities import set_climbing
 from garmin_coach.normalize.climbs import CLIMB_GROUPS, Slope, slopes
 from garmin_coach.normalize.sports import OTHER, sport_groups
 from garmin_coach.reports import format_weekly_totals, week_start, weekly_totals
@@ -146,6 +147,13 @@ class WellnessRange(DateRange):
 
 class NoteQuery(ToolInput):
     query: str | None = Field(default=None, description="Only notes containing this text")
+
+
+class ClimbingInput(ToolInput):
+    activity_id: int
+    elevation_gain_m: float | None = Field(
+        ge=0, le=10000, description="Metres climbed. null brings Garmin's own number back"
+    )
 
 
 class NewNote(ToolInput):
@@ -255,7 +263,10 @@ def activity_line(
             activity.name,
             number(None if activity.distance_m is None else activity.distance_m / 1000, "km", 1),
             f"{hours_minutes(activity.duration_s)} h",
-            number(activity.elevation_gain_m, "m up"),
+            number(
+                activity.elevation_gain_m,
+                "m up" if activity.elevation_gain_override_m is None else "m up, entered by hand",
+            ),
             number(activity.avg_hr, "bpm avg"),
             number(activity.training_load, "load"),
             f"terrain {terrain(climb)}" if group in TERRAIN_GROUPS and climb is not None else None,
@@ -931,6 +942,14 @@ def set_unavailable(ctx: ToolContext, args: UnavailableInput) -> str:
     return f"{saved}. Planned sessions on those days, propose changes for them: {listed}"
 
 
+def set_activity_climbing(ctx: ToolContext, args: ClimbingInput) -> str:
+    activity = ctx.session.get(Activity, args.activity_id)
+    if activity is None:
+        raise LookupError(f"No activity with id {args.activity_id}")
+    set_climbing(ctx.session, activity, args.elevation_gain_m)
+    return f"Saved: {activity_line(activity, sport_groups(ctx.session))}"
+
+
 def save_note(ctx: ToolContext, args: NewNote) -> str:
     note = CoachNote(created_at=datetime.now(), text=args.text)
     ctx.session.add(note)
@@ -1117,6 +1136,14 @@ TOOLS = (
         "sessions that fall on them.",
         UnavailableInput,
         set_unavailable,
+    ),
+    Tool(
+        "set_activity_climbing",
+        "Set the metres climbed in one activity when the athlete tells you the number, for "
+        "example after a treadmill session, where the watch measures no climbing. It replaces "
+        "Garmin's number in every total. Find the activity with list_activities first.",
+        ClimbingInput,
+        set_activity_climbing,
     ),
     Tool(
         "save_note",

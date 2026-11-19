@@ -182,6 +182,15 @@ def add_weather(activity: Activity, weather: Any) -> None:
     activity.humidity_pct = measured(weather.get("relativeHumidity"))
 
 
+def set_climbing(session: Session, activity: Activity, metres: float | None) -> None:
+    """Replaces Garmin's climbing with a number entered by hand. None brings Garmin's back."""
+    activity.elevation_gain_override_m = metres
+    if metres is None:
+        summary = raw_store.get_activity(session, activity.id, "summary") or {}
+        metres = summary.get("elevationGain")
+    activity.elevation_gain_m = metres
+
+
 def normalize_activity(session: Session, activity_id: int) -> Activity | None:
     summary = raw_store.get_activity(session, activity_id, "summary")
     if summary is None:
@@ -193,6 +202,9 @@ def normalize_activity(session: Session, activity_id: int) -> Activity | None:
     if existing is not None:
         activity.is_commute = existing.is_commute
         activity.commute_override = existing.commute_override
+        activity.elevation_gain_override_m = existing.elevation_gain_override_m
+        if existing.elevation_gain_override_m is not None:
+            activity.elevation_gain_m = existing.elevation_gain_override_m
     activity = session.merge(activity)
 
     for child in (ActivityLap, ActivityZoneTime, StrengthSet, ActivityHeartRate, Climb, Descent):

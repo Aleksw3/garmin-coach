@@ -22,6 +22,7 @@ from garmin_coach.models import (
     StrengthSet,
     StrengthSetOverride,
 )
+from garmin_coach.normalize.activities import set_climbing
 from garmin_coach.normalize.sports import sport_groups
 
 router = APIRouter(prefix="/api")
@@ -112,6 +113,7 @@ class ActivityDetailOut(ActivityOut):
     anaerobic_training_effect: float | None
     training_effect_label: str | None
     location_name: str | None
+    elevation_gain_override_m: float | None
     temperature_c: float | None
     feels_like_c: float | None
     humidity_pct: float | None
@@ -222,6 +224,7 @@ def get_activity(session: SessionDep, activity_id: int) -> ActivityDetailOut:
         moving_s=activity.moving_s,
         elevation_loss_m=activity.elevation_loss_m,
         max_hr=activity.max_hr,
+        elevation_gain_override_m=activity.elevation_gain_override_m,
         temperature_c=activity.temperature_c,
         feels_like_c=activity.feels_like_c,
         humidity_pct=activity.humidity_pct,
@@ -266,6 +269,17 @@ def rate_activity(session: SessionDep, activity_id: int, body: RatingIn) -> Acti
         setattr(rating, field, value or None)
     session.commit()
     return rating
+
+
+class ElevationIn(BaseModel):
+    elevation_gain_m: float | None = Field(default=None, ge=0, le=10000)
+
+
+@router.put("/activities/{activity_id}/elevation", status_code=204)
+def set_elevation(session: SessionDep, activity_id: int, body: ElevationIn) -> Response:
+    set_climbing(session, find_activity(session, activity_id), body.elevation_gain_m)
+    session.commit()
+    return Response(status_code=204)
 
 
 def fuel_out(fuel: ActivityFuel | None) -> FuelOut | None:

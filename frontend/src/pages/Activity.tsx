@@ -7,6 +7,7 @@ import {
   fetchZones,
   logFuel,
   restoreSet,
+  setElevation,
   type ActivityDetail,
   type Fuel,
   type StrengthSetRow,
@@ -352,6 +353,68 @@ function Planned({ planned }: { planned: NonNullable<ActivityDetail['planned']> 
   )
 }
 
+function ClimbingCard({ activity }: { activity: ActivityDetail }) {
+  const queryClient = useQueryClient()
+  const [metres, setMetres] = useState<number | null>(activity.elevation_gain_override_m)
+  const [incline, setIncline] = useState('')
+  const save = useMutation({
+    mutationFn: (next: number | null) => setElevation(activity.id, next),
+    onSuccess: () => queryClient.invalidateQueries(),
+  })
+  const fromIncline = (percent: string) => {
+    setIncline(percent)
+    if (percent === '' || activity.distance_km === null) return
+    setMetres(Math.round(activity.distance_km * 1000 * (Number(percent) / 100)))
+  }
+  const input = 'w-full rounded-lg border border-line bg-page px-2 py-1.5 text-base text-primary sm:text-sm'
+  return (
+    <Card title="Climbing" subtitle="For a treadmill || another session where the watch measured no climbing">
+      <div className="space-y-3">
+        <div className="grid grid-cols-2 gap-3">
+          <label className="block text-xs text-muted">
+            <span className="mb-1 block">Climbing, m</span>
+            <input
+              type="number"
+              min={0}
+              inputMode="numeric"
+              className={input}
+              value={metres ?? ''}
+              onChange={(event) => setMetres(event.target.value === '' ? null : Number(event.target.value))}
+            />
+          </label>
+          {activity.distance_km !== null && (
+            <label className="block text-xs text-muted">
+              <span className="mb-1 block">Or the average incline, %</span>
+              <input
+                type="number"
+                min={0}
+                step={0.5}
+                inputMode="decimal"
+                className={input}
+                value={incline}
+                onChange={(event) => fromIncline(event.target.value)}
+              />
+            </label>
+          )}
+        </div>
+        <div className="flex items-center gap-3">
+          <button
+            type="button"
+            onClick={() => save.mutate(metres)}
+            disabled={save.isPending || metres === activity.elevation_gain_override_m}
+            className="rounded-lg bg-accent px-3 py-1.5 text-sm font-semibold text-white disabled:opacity-50"
+          >
+            Save
+          </button>
+          <p className="text-xs text-muted" role="status">
+            {save.error ? save.error.message : save.isPending ? 'Saving…' : save.isSuccess ? 'Saved' : ''}
+          </p>
+        </div>
+      </div>
+    </Card>
+  )
+}
+
 const NO_FUEL: Fuel = { carbs_g: null, fluid_ml: null, gut: null, note: null }
 const LONG_ENOUGH_TO_FUEL_S = 60 * 60
 
@@ -448,6 +511,7 @@ export function ActivityPage({ id }: { id: number }) {
           title="How it felt"
           subtitle="The coach reads this next to the heart rate numbers"
         />
+        {(data.elevation_gain_override_m !== null || !data.elevation_gain_m) && <ClimbingCard activity={data} />}
         {(data.fuel !== null || (data.duration_s ?? 0) >= LONG_ENOUGH_TO_FUEL_S) && <FuelCard activity={data} />}
         <Zones activity={data} />
         <Drift activity={data} />

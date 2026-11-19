@@ -4,7 +4,7 @@ from typing import Annotated
 
 from fastapi import APIRouter, Query, Request
 from pydantic import BaseModel
-from sqlalchemy import select
+from sqlalchemy import or_, select
 from sqlalchemy.orm import Session
 
 from garmin_coach.api.profile import ProfileDep, ProfileRuntime, SessionDep
@@ -29,7 +29,7 @@ from garmin_coach.metrics.load import training_load, trimp_for
 from garmin_coach.metrics.recovery import BaselineStatus, hrv_baseline, resting_hr_baseline
 from garmin_coach.metrics.running import climb_per_km, run_weeks, terrain
 from garmin_coach.metrics.strength import best_one_rep_max, effective_sets, weekly_sets_per_muscle
-from garmin_coach.models import Activity, DailyWellness, SyncRun
+from garmin_coach.models import Activity, ActivityRating, DailyWellness, SyncRun
 from garmin_coach.normalize.sports import OTHER, sport_groups
 from garmin_coach.profiles import profile_name
 from garmin_coach.reports import WeekTotals, week_start, weekly_totals
@@ -38,6 +38,7 @@ from garmin_coach.sync import LAST_SYNC, get_state
 router = APIRouter(prefix="/api")
 
 RECENT_ACTIVITY_COUNT = 5
+DAYS_TO_ASK_FOR_A_RATING = 3
 TERRAIN_GROUPS = ("run", "vertical")
 
 
@@ -115,6 +116,26 @@ def latest_wellness(session: Session, day: date) -> WellnessOut | None:
     )
 
 
+def unrated_activities(session: Session, day: date) -> list[Activity]:
+    first = day - timedelta(days=DAYS_TO_ASK_FOR_A_RATING - 1)
+    return list(
+        session.scalars(
+            select(Activity)
+            .outerjoin(ActivityRating, ActivityRating.activity_id == Activity.id)
+            .where(
+                Activity.local_date >= first,
+                Activity.local_date <= day,
+                Activity.is_commute.is_(False),
+                or_(
+                    ActivityRating.activity_id.is_(None),
+                    ActivityRating.effort.is_(None) & ActivityRating.legs.is_(None),
+                ),
+            )
+            .order_by(Activity.start_time_local.desc())
+        )
+    )
+
+
 @router.get("/today", response_model=TodayOut)
 def today(session: SessionDep, day: date | None = None) -> TodayOut:
     day = day or date.today()
@@ -136,6 +157,7 @@ def today(session: SessionDep, day: date | None = None) -> TodayOut:
         load=LoadOut(**vars(load[-1])) if load else None,
         week=group_totals(weekly_totals(session, this_week, this_week)),
         recent_activities=[activity_out(a, groups) for a in recent],
+        unrated_activities=[activity_out(a, groups) for a in unrated_activities(session, day)],
     )
 
 

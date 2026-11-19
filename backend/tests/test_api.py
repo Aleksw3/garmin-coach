@@ -54,6 +54,18 @@ def test_today(client: TestClient) -> None:
     assert {row["sport_group"] for row in body["week"]} == {"run", "strength"}
 
 
+def test_today_asks_for_a_rating_until_the_session_has_one(client: TestClient) -> None:
+    def unrated() -> list[int]:
+        body = client.get("/api/today", params={"day": DAY.isoformat()}).json()
+        return [a["id"] for a in body["unrated_activities"]]
+
+    assert unrated() == [1, 2]
+
+    client.put("/api/activities/1/rating", json={"effort": 6, "legs": None, "pain": "", "note": ""})
+
+    assert unrated() == [2]
+
+
 def test_trends(client: TestClient) -> None:
     body = client.get("/api/trends", params={"weeks": 4, "end": DAY.isoformat()}).json()
 

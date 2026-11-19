@@ -64,6 +64,7 @@ class TodayOut(BaseModel):
     load: LoadOut | None
     week: list[GroupTotalsOut]
     recent_activities: list[ActivityOut]
+    unrated_activities: list[ActivityOut]
 
 
 class HrvPointOut(BaseModel):

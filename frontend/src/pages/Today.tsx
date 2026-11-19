@@ -3,6 +3,7 @@ import { useState } from 'react'
 import { fetchCalendar, fetchLatestCoach, fetchProposals, fetchToday, type Activity, type GroupTotals } from '../api'
 import { Card } from '../components/Card'
 import { CoachText } from '../components/ChatParts'
+import { RatingCard } from '../components/RatingCard'
 import { SessionDialog } from '../components/SessionDetail'
 import { BaselineBadge, StatTile } from '../components/StatTile'
 import { duration, hours, localToday, number, sentence, weekday } from '../format'
@@ -143,6 +144,29 @@ function LatestCoachMessage() {
   )
 }
 
+function RateSessions({ unrated }: { unrated: Activity[] }) {
+  const [started, setStarted] = useState<Activity[]>([])
+  const waiting = unrated.filter((activity) => started.every((other) => other.id !== activity.id))
+  const shown = [...started, ...waiting].sort((a, b) => b.start_time_local.localeCompare(a.start_time_local))
+  const keepWhileRating = (activity: Activity) =>
+    setStarted((kept) => (kept.some((other) => other.id === activity.id) ? kept : [...kept, activity]))
+  if (shown.length === 0) return null
+  return (
+    <div className="grid gap-4 lg:grid-cols-2">
+      {shown.map((activity) => (
+        <RatingCard
+          key={activity.id}
+          activityId={activity.id}
+          saved={null}
+          title={`How did ${activity.name ?? sentence(activity.type_key)} feel?`}
+          subtitle={`${weekday(activity.start_time_local)}, ${duration(activity.duration_s)}. The coach reads this next to the heart rate numbers`}
+          onSaved={() => keepWhileRating(activity)}
+        />
+      ))}
+    </div>
+  )
+}
+
 export function TodayPage() {
   const { data, error, isPending } = useQuery({
     queryKey: ['today'],
@@ -155,6 +179,7 @@ export function TodayPage() {
   const sleptToday = wellness?.sleep_day === data.day
   return (
     <div className="space-y-4">
+      <RateSessions unrated={data.unrated_activities} />
       <div className="grid gap-4 lg:grid-cols-2">
         <TodayPlan />
         <LatestCoachMessage />

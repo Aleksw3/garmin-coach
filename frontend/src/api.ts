@@ -54,6 +54,7 @@ export type Today = {
   load: Load | null
   week: GroupTotals[]
   recent_activities: Activity[]
+  unrated_activities: Activity[]
 }
 
 export type HrvPoint = {

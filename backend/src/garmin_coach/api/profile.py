@@ -11,7 +11,7 @@ from garmin_coach.coach.proactive import ProactiveCoach
 from garmin_coach.garmin.connect import PendingLogin
 from garmin_coach.garmin.nightly import TomorrowOnWatch
 from garmin_coach.garmin.source import GarminSource
-from garmin_coach.jobs import SyncRunner
+from garmin_coach.jobs import FAILED_SYNCS_BEFORE_ALERT, SyncRunner
 from garmin_coach.sync import SyncService
 
 PROFILE_HEADER = "X-Profile"
@@ -46,6 +46,12 @@ def make_profile(
         on_auth_failed=lambda error: notifier.send(
             "Garmin login failed",
             f"The sync could not log in to Garmin: {error}. Log in again on the Settings page.",
+            "#settings",
+        ),
+        on_failing=lambda error: notifier.send(
+            "Garmin sync keeps failing",
+            f"The last {FAILED_SYNCS_BEFORE_ALERT} syncs failed: {error}. Your login is fine. "
+            "Check the network on the machine that runs the coach.",
             "#settings",
         ),
     )

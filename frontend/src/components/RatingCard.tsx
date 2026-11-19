@@ -2,6 +2,7 @@ import { useMutation, useQueryClient } from '@tanstack/react-query'
 import { useState } from 'react'
 import { rateActivity, type Rating } from '../api'
 import { Card } from './Card'
+import { SaveStatus } from './SaveStatus'
 
 const LEGS = ['Fresh', 'Normal', 'Heavy', 'Sore', 'Very sore']
 const NO_RATING: Rating = { effort: null, legs: null, pain: null, note: null }
@@ -47,9 +48,10 @@ type Props = {
   title: string
   subtitle?: string
   onSaved?: () => void
+  onSkip?: () => void
 }
 
-export function RatingCard({ activityId, saved, title, subtitle, onSaved }: Props) {
+export function RatingCard({ activityId, saved, title, subtitle, onSaved, onSkip }: Props) {
   const queryClient = useQueryClient()
   const [rating, setRating] = useState<Rating>(saved ?? NO_RATING)
   const save = useMutation({
@@ -93,9 +95,7 @@ export function RatingCard({ activityId, saved, title, subtitle, onSaved }: Prop
             onBlur={() => save.mutate(rating)}
           />
         </label>
-        <p className="text-xs text-muted" role="status">
-          {save.error ? save.error.message : save.isPending ? 'Saving…' : save.isSuccess ? 'Saved' : ''}
-        </p>
+        <SaveStatus save={save} onSkip={onSkip} />
       </div>
     </Card>
   )

@@ -18,6 +18,7 @@ SYNC_HOURS = "5-23"
 SYNC_MINUTE = 5
 SYNC_SPACING_MIN = 10
 CHECKIN_WAIT_HOURS = 2
+FAILED_SYNCS_BEFORE_ALERT = 3
 
 
 @dataclass(frozen=True)
@@ -32,10 +33,13 @@ class SyncRunner:
         make_service: Callable[[], SyncService],
         on_synced: Callable[[], object] | None = None,
         on_auth_failed: Callable[[str], object] | None = None,
+        on_failing: Callable[[str], object] | None = None,
     ) -> None:
         self.make_service = make_service
         self.on_synced = on_synced
         self.on_auth_failed = on_auth_failed
+        self.on_failing = on_failing
+        self.failed_in_a_row = 0
         self.backfill: Backfill | None = None
         self._lock = threading.Lock()
 
@@ -46,13 +50,17 @@ class SyncRunner:
     def _guarded(self, work: Callable[[SyncService], object]) -> bool:
         try:
             work(self.make_service())
+            self.failed_in_a_row = 0
             return True
         except GarminAuthError as error:
             log.exception("Garmin login failed")
             if self.on_auth_failed:
                 self.on_auth_failed(str(error))
-        except GarminError:
+        except GarminError as error:
             log.exception("Sync failed")
+            self.failed_in_a_row += 1
+            if self.failed_in_a_row == FAILED_SYNCS_BEFORE_ALERT and self.on_failing:
+                self.on_failing(str(error))
         return False
 
     def run_recent(self) -> bool:

@@ -4,22 +4,26 @@ from typing import Annotated
 
 from fastapi import APIRouter, Query, Request
 from pydantic import BaseModel
-from sqlalchemy import or_, select
+from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from garmin_coach.api.profile import ProfileDep, ProfileRuntime, SessionDep
 from garmin_coach.api.schemas import (
     ActivityOut,
     BaselineOut,
+    FuelOut,
     GroupTotalsOut,
     HrvPointOut,
     LoadOut,
     OneRepMaxOut,
+    PromptKind,
+    RatingOut,
     RunWeekOut,
     StrengthWeekOut,
     SyncRunOut,
     SyncStatusOut,
     TodayOut,
+    ToLogOut,
     TrendsOut,
     WellnessOut,
 )
@@ -29,7 +33,14 @@ from garmin_coach.metrics.load import training_load, trimp_for
 from garmin_coach.metrics.recovery import BaselineStatus, hrv_baseline, resting_hr_baseline
 from garmin_coach.metrics.running import climb_per_km, run_weeks, terrain
 from garmin_coach.metrics.strength import best_one_rep_max, effective_sets, weekly_sets_per_muscle
-from garmin_coach.models import Activity, ActivityRating, DailyWellness, SyncRun
+from garmin_coach.models import (
+    Activity,
+    ActivityFuel,
+    ActivityRating,
+    DailyWellness,
+    SkippedPrompt,
+    SyncRun,
+)
 from garmin_coach.normalize.sports import OTHER, sport_groups
 from garmin_coach.profiles import profile_name
 from garmin_coach.reports import WeekTotals, week_start, weekly_totals
@@ -38,7 +49,8 @@ from garmin_coach.sync import LAST_SYNC, get_state
 router = APIRouter(prefix="/api")
 
 RECENT_ACTIVITY_COUNT = 5
-DAYS_TO_ASK_FOR_A_RATING = 3
+DAYS_TO_ASK_ABOUT_A_SESSION = 3
+ASK_FOR_FUEL_FROM_S = 90 * 60
 TERRAIN_GROUPS = ("run", "vertical")
 
 
@@ -116,24 +128,50 @@ def latest_wellness(session: Session, day: date) -> WellnessOut | None:
     )
 
 
-def unrated_activities(session: Session, day: date) -> list[Activity]:
-    first = day - timedelta(days=DAYS_TO_ASK_FOR_A_RATING - 1)
-    return list(
-        session.scalars(
-            select(Activity)
-            .outerjoin(ActivityRating, ActivityRating.activity_id == Activity.id)
-            .where(
-                Activity.local_date >= first,
-                Activity.local_date <= day,
-                Activity.is_commute.is_(False),
-                or_(
-                    ActivityRating.activity_id.is_(None),
-                    ActivityRating.effort.is_(None) & ActivityRating.legs.is_(None),
-                ),
-            )
-            .order_by(Activity.start_time_local.desc())
+def asks(
+    activity: Activity,
+    rating: ActivityRating | None,
+    fuel: ActivityFuel | None,
+    skipped: set[tuple[int, str]],
+) -> list[PromptKind]:
+    rated = rating is not None and rating.effort is not None and rating.legs is not None
+    fueled = fuel is not None and (fuel.carbs_g is not None or fuel.fluid_ml is not None)
+    long_enough = (activity.duration_s or 0) >= ASK_FOR_FUEL_FROM_S
+    wanted: dict[PromptKind, bool] = {"rating": not rated, "fuel": long_enough and not fueled}
+    return [kind for kind, ask in wanted.items() if ask and (activity.id, kind) not in skipped]
+
+
+def sessions_to_log(session: Session, day: date, groups: dict[str, str]) -> list[ToLogOut]:
+    first = day - timedelta(days=DAYS_TO_ASK_ABOUT_A_SESSION - 1)
+    activities = session.scalars(
+        select(Activity)
+        .where(
+            Activity.local_date >= first,
+            Activity.local_date <= day,
+            Activity.is_commute.is_(False),
         )
-    )
+        .order_by(Activity.start_time_local.desc())
+    ).all()
+    ids = [activity.id for activity in activities]
+    skipped = {
+        (row.activity_id, row.kind)
+        for row in session.scalars(select(SkippedPrompt).where(SkippedPrompt.activity_id.in_(ids)))
+    }
+    to_log = []
+    for activity in activities:
+        rating = session.get(ActivityRating, activity.id)
+        fuel = session.get(ActivityFuel, activity.id)
+        wanted = asks(activity, rating, fuel, skipped)
+        if wanted:
+            to_log.append(
+                ToLogOut(
+                    activity=activity_out(activity, groups),
+                    asks=wanted,
+                    rating=None if rating is None else RatingOut.model_validate(rating),
+                    fuel=None if fuel is None else FuelOut.model_validate(fuel),
+                )
+            )
+    return to_log
 
 
 @router.get("/today", response_model=TodayOut)
@@ -157,7 +195,7 @@ def today(session: SessionDep, day: date | None = None) -> TodayOut:
         load=LoadOut(**vars(load[-1])) if load else None,
         week=group_totals(weekly_totals(session, this_week, this_week)),
         recent_activities=[activity_out(a, groups) for a in recent],
-        unrated_activities=[activity_out(a, groups) for a in unrated_activities(session, day)],
+        to_log=sessions_to_log(session, day, groups),
     )
 
 

@@ -54,16 +54,30 @@ def test_today(client: TestClient) -> None:
     assert {row["sport_group"] for row in body["week"]} == {"run", "strength"}
 
 
-def test_today_asks_for_a_rating_until_the_session_has_one(client: TestClient) -> None:
-    def unrated() -> list[int]:
+def test_today_asks_about_a_session_until_it_is_logged_or_skipped(
+    client: TestClient, sessions: sessionmaker[Session]
+) -> None:
+    with sessions() as session:
+        long_run = activity_summary(1, "2026-10-27 07:00:00", duration_s=2 * 3600.0)
+        raw_store.put_activity(session, 1, "summary", long_run)
+        rebuild_all(session)
+        session.commit()
+
+    def asked() -> dict[int, list[str]]:
         body = client.get("/api/today", params={"day": DAY.isoformat()}).json()
-        return [a["id"] for a in body["unrated_activities"]]
+        return {entry["activity"]["id"]: entry["asks"] for entry in body["to_log"]}
 
-    assert unrated() == [1, 2]
+    assert asked() == {1: ["rating", "fuel"], 2: ["rating"]}
 
-    client.put("/api/activities/1/rating", json={"effort": 6, "legs": None, "pain": "", "note": ""})
+    client.post("/api/activities/1/effort/6")
+    assert asked()[1] == ["rating", "fuel"]
 
-    assert unrated() == [2]
+    client.put("/api/activities/1/rating", json={"effort": 6, "legs": 2, "pain": "", "note": ""})
+    client.post("/api/activities/2/skip/rating")
+    assert asked() == {1: ["fuel"]}
+
+    client.put("/api/activities/1/fuel", json={"carbs_g": 90, "fluid_ml": None})
+    assert asked() == {}
 
 
 def test_trends(client: TestClient) -> None:

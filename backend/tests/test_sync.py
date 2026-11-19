@@ -1,4 +1,5 @@
 from datetime import date
+from typing import Any
 
 import pytest
 import requests
@@ -9,6 +10,7 @@ from sqlalchemy.orm import Session, sessionmaker
 from garmin_coach import raw_store
 from garmin_coach.garmin.connect import translated_errors
 from garmin_coach.garmin.source import DAILY_KINDS, GarminAuthError, GarminError, GarminRateLimited
+from garmin_coach.jobs import FAILED_SYNCS_BEFORE_ALERT, SyncRunner
 from garmin_coach.models import Activity, BodyComposition, DailyWellness, StrengthSet, SyncRun
 from garmin_coach.sync import BACKFILL_CURSOR, SyncService, get_state
 from tests.garmin_data import FakeGarmin, activity_summary
@@ -140,3 +142,30 @@ def test_a_login_that_fails_without_a_network_is_not_an_auth_error() -> None:
 def test_a_rejected_login_is_an_auth_error() -> None:
     with pytest.raises(GarminAuthError), translated_errors():
         raise login_failure(ValueError("401 Unauthorized"))
+
+
+class GarminWithoutNetwork(FakeGarmin):
+    down = True
+
+    def list_activities(self, start: date, end: date) -> list[dict[str, Any]]:
+        if self.down:
+            raise GarminError("down")
+        return super().list_activities(start, end)
+
+
+def test_the_runner_alerts_once_when_the_sync_keeps_failing(
+    sessions: sessionmaker[Session],
+) -> None:
+    garmin = GarminWithoutNetwork([])
+    alerts: list[str] = []
+    runner = SyncRunner(
+        lambda: SyncService(garmin, sessions, request_delay=0, sleep=lambda _: None),
+        on_failing=alerts.append,
+    )
+    for _ in range(FAILED_SYNCS_BEFORE_ALERT + 2):
+        runner.run_recent()
+    assert len(alerts) == 1
+
+    garmin.down = False
+    runner.run_recent()
+    assert runner.failed_in_a_row == 0

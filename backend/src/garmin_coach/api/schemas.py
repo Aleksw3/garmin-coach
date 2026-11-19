@@ -1,6 +1,7 @@
 from datetime import date, datetime
+from typing import Literal
 
-from pydantic import BaseModel
+from pydantic import BaseModel, ConfigDict, Field
 
 
 class WellnessOut(BaseModel):
@@ -56,6 +57,38 @@ class ActivityOut(BaseModel):
     is_commute: bool
 
 
+class RatingIn(BaseModel):
+    effort: int | None = Field(default=None, ge=1, le=10)
+    legs: int | None = Field(default=None, ge=1, le=5)
+    pain: str | None = Field(default=None, max_length=300)
+    note: str | None = Field(default=None, max_length=1000)
+
+
+class RatingOut(RatingIn):
+    model_config = ConfigDict(from_attributes=True)
+
+
+class FuelIn(BaseModel):
+    carbs_g: float | None = Field(default=None, ge=0, le=5000)
+    fluid_ml: float | None = Field(default=None, ge=0, le=50000)
+    gut: str | None = Field(default=None, max_length=300)
+    note: str | None = Field(default=None, max_length=1000)
+
+
+class FuelOut(FuelIn):
+    model_config = ConfigDict(from_attributes=True)
+
+
+PromptKind = Literal["rating", "fuel"]
+
+
+class ToLogOut(BaseModel):
+    activity: ActivityOut
+    asks: list[PromptKind]
+    rating: RatingOut | None
+    fuel: FuelOut | None
+
+
 class TodayOut(BaseModel):
     day: date
     wellness: WellnessOut | None
@@ -64,7 +97,7 @@ class TodayOut(BaseModel):
     load: LoadOut | None
     week: list[GroupTotalsOut]
     recent_activities: list[ActivityOut]
-    unrated_activities: list[ActivityOut]
+    to_log: list[ToLogOut]
 
 
 class HrvPointOut(BaseModel):

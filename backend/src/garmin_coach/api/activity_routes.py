@@ -8,7 +8,14 @@ from sqlalchemy import select
 
 from garmin_coach.api.profile import SessionDep
 from garmin_coach.api.routes import activity_out
-from garmin_coach.api.schemas import ActivityOut
+from garmin_coach.api.schemas import (
+    ActivityOut,
+    FuelIn,
+    FuelOut,
+    PromptKind,
+    RatingIn,
+    RatingOut,
+)
 from garmin_coach.metrics.strength import MUSCLES_BY_CATEGORY
 from garmin_coach.metrics.zones import activity_zone_seconds, current_zones
 from garmin_coach.models import (
@@ -19,6 +26,7 @@ from garmin_coach.models import (
     ActivityZoneTime,
     PlannedSession,
     SessionMatch,
+    SkippedPrompt,
     StrengthSet,
     StrengthSetOverride,
 )
@@ -77,28 +85,6 @@ class PlannedMatchOut(BaseModel):
     title: str
     compliance: float | None
     details: dict[str, list[float]]
-
-
-class RatingIn(BaseModel):
-    effort: int | None = Field(default=None, ge=1, le=10)
-    legs: int | None = Field(default=None, ge=1, le=5)
-    pain: str | None = Field(default=None, max_length=300)
-    note: str | None = Field(default=None, max_length=1000)
-
-
-class RatingOut(RatingIn):
-    model_config = ConfigDict(from_attributes=True)
-
-
-class FuelIn(BaseModel):
-    carbs_g: float | None = Field(default=None, ge=0, le=5000)
-    fluid_ml: float | None = Field(default=None, ge=0, le=50000)
-    gut: str | None = Field(default=None, max_length=300)
-    note: str | None = Field(default=None, max_length=1000)
-
-
-class FuelOut(FuelIn):
-    model_config = ConfigDict(from_attributes=True)
 
 
 class ActivityDetailOut(ActivityOut):
@@ -269,6 +255,14 @@ def rate_activity(session: SessionDep, activity_id: int, body: RatingIn) -> Acti
         setattr(rating, field, value or None)
     session.commit()
     return rating
+
+
+@router.post("/activities/{activity_id}/skip/{kind}", status_code=204)
+def skip_prompt(session: SessionDep, activity_id: int, kind: PromptKind) -> Response:
+    find_activity(session, activity_id)
+    session.merge(SkippedPrompt(activity_id=activity_id, kind=kind))
+    session.commit()
+    return Response(status_code=204)
 
 
 class ElevationIn(BaseModel):

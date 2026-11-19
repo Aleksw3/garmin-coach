@@ -1,8 +1,19 @@
-import { useQuery } from '@tanstack/react-query'
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { useState } from 'react'
-import { fetchCalendar, fetchLatestCoach, fetchProposals, fetchToday, type Activity, type GroupTotals } from '../api'
+import {
+  fetchCalendar,
+  fetchLatestCoach,
+  fetchProposals,
+  fetchToday,
+  skipPrompt,
+  type Activity,
+  type GroupTotals,
+  type PromptKind,
+  type ToLog,
+} from '../api'
 import { Card } from '../components/Card'
 import { CoachText } from '../components/ChatParts'
+import { FuelCard } from '../components/FuelCard'
 import { RatingCard } from '../components/RatingCard'
 import { SessionDialog } from '../components/SessionDetail'
 import { BaselineBadge, StatTile } from '../components/StatTile'
@@ -144,25 +155,65 @@ function LatestCoachMessage() {
   )
 }
 
-function RateSessions({ unrated }: { unrated: Activity[] }) {
-  const [started, setStarted] = useState<Activity[]>([])
-  const waiting = unrated.filter((activity) => started.every((other) => other.id !== activity.id))
-  const shown = [...started, ...waiting].sort((a, b) => b.start_time_local.localeCompare(a.start_time_local))
-  const keepWhileRating = (activity: Activity) =>
-    setStarted((kept) => (kept.some((other) => other.id === activity.id) ? kept : [...kept, activity]))
+type Prompt = { key: string; kind: PromptKind; entry: ToLog }
+
+const KIND_ORDER: PromptKind[] = ['rating', 'fuel']
+
+function prompts(entries: ToLog[]): Prompt[] {
+  return entries.flatMap((entry) => entry.asks.map((kind) => ({ key: `${kind}:${entry.activity.id}`, kind, entry })))
+}
+
+function newestFirst(a: Prompt, b: Prompt): number {
+  const byStart = b.entry.activity.start_time_local.localeCompare(a.entry.activity.start_time_local)
+  return byStart || KIND_ORDER.indexOf(a.kind) - KIND_ORDER.indexOf(b.kind)
+}
+
+function SessionsToLog({ entries }: { entries: ToLog[] }) {
+  const queryClient = useQueryClient()
+  const [started, setStarted] = useState<Prompt[]>([])
+  const [skipped, setSkipped] = useState<string[]>([])
+  const skip = useMutation({
+    mutationFn: (prompt: Prompt) => skipPrompt(prompt.entry.activity.id, prompt.kind),
+    onSuccess: (_, prompt) => {
+      setSkipped((keys) => [...keys, prompt.key])
+      return queryClient.invalidateQueries({ queryKey: ['today'] })
+    },
+  })
+  const waiting = prompts(entries).filter((prompt) => started.every((other) => other.key !== prompt.key))
+  const shown = [...started, ...waiting].filter((prompt) => !skipped.includes(prompt.key)).sort(newestFirst)
+  const keepWhileFilledIn = (prompt: Prompt) =>
+    setStarted((kept) => (kept.some((other) => other.key === prompt.key) ? kept : [...kept, prompt]))
   if (shown.length === 0) return null
   return (
     <div className="grid gap-4 lg:grid-cols-2">
-      {shown.map((activity) => (
-        <RatingCard
-          key={activity.id}
-          activityId={activity.id}
-          saved={null}
-          title={`How did ${activity.name ?? sentence(activity.type_key)} feel?`}
-          subtitle={`${weekday(activity.start_time_local)}, ${duration(activity.duration_s)}. The coach reads this next to the heart rate numbers`}
-          onSaved={() => keepWhileRating(activity)}
-        />
-      ))}
+      {shown.map((prompt) => {
+        const { activity, rating, fuel } = prompt.entry
+        const name = activity.name ?? sentence(activity.type_key)
+        const when = `${weekday(activity.start_time_local)}, ${duration(activity.duration_s)}`
+        const common = {
+          activityId: activity.id,
+          onSaved: () => keepWhileFilledIn(prompt),
+          onSkip: () => skip.mutate(prompt),
+        }
+        return prompt.kind === 'rating' ? (
+          <RatingCard
+            key={prompt.key}
+            {...common}
+            saved={rating}
+            title={`How did ${name} feel?`}
+            subtitle={`${when}. The coach reads this next to the heart rate numbers`}
+          />
+        ) : (
+          <FuelCard
+            key={prompt.key}
+            {...common}
+            durationS={activity.duration_s}
+            saved={fuel}
+            title={`What did you eat and drink on ${name}?`}
+            subtitle={`${when}. The coach uses this to build toward race fueling`}
+          />
+        )
+      })}
     </div>
   )
 }
@@ -179,7 +230,7 @@ export function TodayPage() {
   const sleptToday = wellness?.sleep_day === data.day
   return (
     <div className="space-y-4">
-      <RateSessions unrated={data.unrated_activities} />
+      <SessionsToLog entries={data.to_log} />
       <div className="grid gap-4 lg:grid-cols-2">
         <TodayPlan />
         <LatestCoachMessage />

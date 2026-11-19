@@ -46,6 +46,10 @@ export type Activity = {
   is_commute: boolean
 }
 
+export type PromptKind = 'rating' | 'fuel'
+
+export type ToLog = { activity: Activity; asks: PromptKind[]; rating: Rating | null; fuel: Fuel | null }
+
 export type Today = {
   day: string
   wellness: Wellness | null
@@ -54,7 +58,7 @@ export type Today = {
   load: Load | null
   week: GroupTotals[]
   recent_activities: Activity[]
-  unrated_activities: Activity[]
+  to_log: ToLog[]
 }
 
 export type HrvPoint = {
@@ -526,6 +530,9 @@ export type Fuel = { carbs_g: number | null; fluid_ml: number | null; gut: strin
 
 export const setElevation = (id: number, elevation_gain_m: number | null) =>
   send(`/api/activities/${id}/elevation`, json('PUT', { elevation_gain_m }))
+
+export const skipPrompt = (id: number, kind: PromptKind) =>
+  send(`/api/activities/${id}/skip/${kind}`, { method: 'POST' })
 
 export const logFuel = (id: number, fuel: Fuel) => request<Fuel>(`/api/activities/${id}/fuel`, json('PUT', fuel))
 

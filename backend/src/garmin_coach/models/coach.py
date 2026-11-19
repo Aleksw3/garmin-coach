@@ -141,6 +141,15 @@ class ActivityFuel(Base):
     updated_at: Mapped[datetime] = mapped_column(DateTime)
 
 
+class SkippedPrompt(Base):
+    """A rating or fueling question on the Today page that the athlete chose not to answer."""
+
+    __tablename__ = "skipped_prompt"
+
+    activity_id: Mapped[int] = mapped_column(BigInteger, primary_key=True)
+    kind: Mapped[str] = mapped_column(String(16), primary_key=True)
+
+
 class ActivityRating(Base):
     __tablename__ = "activity_rating"
 

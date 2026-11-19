@@ -20,6 +20,7 @@ from garmin_coach.models.coach import (
     Goal,
     GoalCourse,
     Message,
+    SkippedPrompt,
     ThresholdTest,
 )
 from garmin_coach.models.evidence import Evidence, EvidenceTopic
@@ -63,6 +64,7 @@ __all__ = [
     "RawDaily",
     "SeasonWeek",
     "SessionMatch",
+    "SkippedPrompt",
     "SportMapping",
     "StrengthSet",
     "StrengthSetOverride",

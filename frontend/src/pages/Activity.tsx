@@ -13,9 +13,9 @@ import {
 import { Card, DataTable } from '../components/Card'
 import { FuelCard } from '../components/FuelCard'
 import { RatingCard } from '../components/RatingCard'
-import { StatTile } from '../components/StatTile'
+import { Meter, MetricTile, RangeTrack, type Tone } from '../components/Metric'
 import { duration, number, sentence } from '../format'
-import { groupLabel } from '../theme'
+import { groupColor, groupLabel, useTheme } from '../theme'
 
 const TARGET_LABELS: Record<string, [string, string]> = {
   duration_min: ['Duration', 'min'],
@@ -29,53 +29,91 @@ function pace(speed: number | null): string {
   const seconds = 1000 / speed
   return `${Math.floor(seconds / 60)}:${Math.round(seconds % 60)
     .toString()
-    .padStart(2, '0')} /km`
+    .padStart(2, '0')}`
 }
 
+const HIGHEST_TRAINING_EFFECT = 5
+
 function Stats({ activity }: { activity: ActivityDetail }) {
-  const tiles = [
-    { label: 'Duration', value: duration(activity.duration_s), detail: activity.moving_s ? `moving ${duration(activity.moving_s)}` : null },
-    activity.distance_km ? { label: 'Distance', value: `${number(activity.distance_km, 2)} km`, detail: null } : null,
-    activity.elevation_gain_m
-      ? { label: 'Climbing', value: `${number(activity.elevation_gain_m)} m`, detail: `${number(activity.elevation_loss_m)} m down` }
-      : null,
-    activity.avg_hr ? { label: 'Heart rate', value: `${number(activity.avg_hr)} bpm`, detail: `max ${number(activity.max_hr)}` } : null,
-    activity.distance_km && activity.avg_speed_mps
-      ? {
-          label: 'Pace',
-          value: pace(activity.avg_speed_mps),
-          detail: activity.avg_grade_adjusted_speed_mps ? `grade-adjusted ${pace(activity.avg_grade_adjusted_speed_mps)}` : null,
-        }
-      : null,
-    activity.training_load !== null
-      ? {
-          label: 'Training load',
-          value: number(activity.training_load),
-          detail:
-            activity.aerobic_training_effect !== null
-              ? `effect ${number(activity.aerobic_training_effect, 1)} aerobic, ${number(activity.anaerobic_training_effect, 1)} anaerobic`
-              : null,
-        }
-      : null,
-    activity.temperature_c !== null
-      ? {
-          label: 'Temperature',
-          value: `${number(activity.temperature_c)} °C`,
-          detail:
-            [
-              activity.feels_like_c !== null ? `felt ${number(activity.feels_like_c)} °C` : null,
-              activity.humidity_pct !== null ? `humidity ${number(activity.humidity_pct)}%` : null,
-            ]
-              .filter((part) => part !== null)
-              .join(', ') || null,
-        }
-      : null,
-  ].filter((tile) => tile !== null)
+  const weather = [
+    activity.feels_like_c !== null ? `feels like ${number(activity.feels_like_c)} °C` : null,
+    activity.humidity_pct !== null ? `humidity ${number(activity.humidity_pct)}%` : null,
+  ].filter((part) => part !== null)
   return (
     <div className="grid grid-cols-2 gap-3 md:grid-cols-3">
-      {tiles.map((tile) => (
-        <StatTile key={tile.label} label={tile.label} value={tile.value} detail={tile.detail} />
-      ))}
+      <MetricTile
+        label="Duration"
+        value={duration(activity.duration_s)}
+        detail={activity.moving_s ? `Moving ${duration(activity.moving_s)}` : undefined}
+      />
+      {activity.distance_km ? (
+        <MetricTile label="Distance" value={number(activity.distance_km, 2)} unit="km" />
+      ) : null}
+      {activity.elevation_gain_m ? (
+        <MetricTile
+          label="Climbing"
+          value={number(activity.elevation_gain_m)}
+          unit="m"
+          detail={`${number(activity.elevation_loss_m)} m down`}
+        />
+      ) : null}
+      {activity.avg_hr ? (
+        <MetricTile
+          label="Heart rate"
+          value={number(activity.avg_hr)}
+          unit="bpm"
+          detail={`Highest ${number(activity.max_hr)} bpm`}
+        />
+      ) : null}
+      {activity.distance_km && activity.avg_speed_mps ? (
+        <MetricTile
+          label="Pace"
+          value={pace(activity.avg_speed_mps)}
+          unit="/km"
+          detail={
+            activity.avg_grade_adjusted_speed_mps
+              ? `Grade-adjusted ${pace(activity.avg_grade_adjusted_speed_mps)} /km`
+              : undefined
+          }
+        />
+      ) : null}
+      {activity.training_load !== null && (
+        <MetricTile label="Training load" value={number(activity.training_load)}>
+          {activity.aerobic_training_effect !== null && (
+            <div className="space-y-1.5 text-xs text-secondary">
+              <div className="flex items-center gap-2">
+                <span className="w-20 shrink-0">Aerobic {number(activity.aerobic_training_effect, 1)}</span>
+                <div className="flex-1">
+                  <Meter
+                    label="Aerobic training effect"
+                    value={activity.aerobic_training_effect}
+                    max={HIGHEST_TRAINING_EFFECT}
+                  />
+                </div>
+              </div>
+              <div className="flex items-center gap-2">
+                <span className="w-20 shrink-0">Anaerobic {number(activity.anaerobic_training_effect, 1)}</span>
+                <div className="flex-1">
+                  <Meter
+                    label="Anaerobic training effect"
+                    value={activity.anaerobic_training_effect ?? 0}
+                    max={HIGHEST_TRAINING_EFFECT}
+                    tone="neutral"
+                  />
+                </div>
+              </div>
+            </div>
+          )}
+        </MetricTile>
+      )}
+      {activity.temperature_c !== null && (
+        <MetricTile
+          label="Temperature"
+          value={number(activity.temperature_c)}
+          unit="°C"
+          detail={weather.length > 0 ? weather.join(', ').replace(/^./, (first) => first.toUpperCase()) : undefined}
+        />
+      )}
     </div>
   )
 }
@@ -113,6 +151,9 @@ function Zones({ activity }: { activity: ActivityDetail }) {
   )
 }
 
+const CLOSE_TO_LT1_FROM_PCT = 3.5
+const CLOSE_TO_LT1_TO_PCT = 5
+
 function Drift({ activity }: { activity: ActivityDetail }) {
   const queryClient = useQueryClient()
   const zones = useQuery({ queryKey: ['zones'], queryFn: fetchZones })
@@ -137,23 +178,34 @@ function Drift({ activity }: { activity: ActivityDetail }) {
   if (activity.hr_drift_pct === null || !['run', 'vertical'].includes(activity.sport_group)) return null
   const drift = activity.hr_drift_pct
   const verdict =
-    drift < 3.5
+    drift < CLOSE_TO_LT1_FROM_PCT
       ? 'Under 3.5%: this pace was below LT1. Try a little faster next time.'
-      : drift <= 5
+      : drift <= CLOSE_TO_LT1_TO_PCT
         ? '3.5 to 5%: this pace was close to LT1.'
         : 'Over 5%: this pace was above LT1, or the run was not steady.'
   const lt2 = zones.data?.current?.lt2_hr
+  const tone: Tone = drift < CLOSE_TO_LT1_FROM_PCT ? 'neutral' : drift <= CLOSE_TO_LT1_TO_PCT ? 'good' : 'warning'
   return (
     <Card title="Heart rate drift" subtitle="First half against second half after a 15 min warm-up">
-      <div className="grid grid-cols-3 gap-2">
-        <StatTile label="First half" value={`${number(activity.drift_first_hr)} bpm`} detail={null} />
-        <StatTile label="Second half" value={`${number(activity.drift_second_hr)} bpm`} detail={null} />
-        <StatTile
-          label="Drift"
-          value={`${number(drift, 1)}%`}
-          detail={activity.decoupling_pct !== null ? `pace to HR ${number(activity.decoupling_pct, 1)}%` : null}
+      <div className="flex items-baseline gap-3">
+        <span className="tabular text-3xl font-semibold tracking-tight text-primary">{number(drift, 1)}%</span>
+        <span className="tabular text-sm text-secondary">
+          {number(activity.drift_first_hr)} bpm, then {number(activity.drift_second_hr)} bpm
+        </span>
+      </div>
+      <div className="mt-3">
+        <RangeTrack
+          label="Drift against the 3.5 to 5% band that is close to LT1"
+          low={CLOSE_TO_LT1_FROM_PCT}
+          high={CLOSE_TO_LT1_TO_PCT}
+          value={drift}
+          tone={tone}
         />
       </div>
+      <p className="mt-1.5 text-xs text-muted">
+        The band is 3.5 to 5%, a pace close to LT1
+        {activity.decoupling_pct !== null && `. Pace to heart rate changed ${number(activity.decoupling_pct, 1)}%`}
+      </p>
       <p className="mt-3 text-sm text-secondary">{verdict}</p>
       <p className="mt-1 text-xs text-muted">
         Only meaningful for a steady pace on flat ground or a treadmill, like the LT1 test.
@@ -179,8 +231,8 @@ function Laps({ activity }: { activity: ActivityDetail }) {
           lap.lap_index,
           number((lap.distance_m ?? 0) / 1000, 2),
           duration(lap.duration_s),
-          pace(lap.avg_speed_mps),
-          pace(lap.avg_grade_adjusted_speed_mps),
+          lap.avg_speed_mps ? `${pace(lap.avg_speed_mps)} /km` : '–',
+          lap.avg_grade_adjusted_speed_mps ? `${pace(lap.avg_grade_adjusted_speed_mps)} /km` : '–',
           number(lap.elevation_gain_m),
           number(lap.elevation_loss_m),
           number(lap.avg_hr),
@@ -338,16 +390,37 @@ function StrengthSets({ activity }: { activity: ActivityDetail }) {
 }
 
 function Planned({ planned }: { planned: NonNullable<ActivityDetail['planned']> }) {
-  const parts = Object.entries(planned.details).map(([key, [target, actual]]) => {
-    const [label, unit] = TARGET_LABELS[key] ?? [key, '']
-    return `${label} ${number(actual)} of ${number(target)} ${unit}`
-  })
+  const targets = Object.entries(planned.details)
   return (
     <Card title={`Planned: ${planned.title}`} subtitle="How this activity compares with the planned session">
-      <p className="text-sm text-primary">
-        {planned.compliance !== null ? `Compliance ${number(planned.compliance)}%` : 'Done, the session had no targets'}
-      </p>
-      {parts.length > 0 && <p className="mt-1 text-xs text-secondary">{parts.join(', ')}</p>}
+      {planned.compliance !== null ? (
+        <div className="flex items-baseline gap-1.5">
+          <span className="tabular text-3xl font-semibold tracking-tight text-primary">
+            {number(planned.compliance)}%
+          </span>
+          <span className="text-sm text-secondary">of the targets</span>
+        </div>
+      ) : (
+        <p className="text-sm text-primary">Done, the session had no targets</p>
+      )}
+      {targets.length > 0 && (
+        <ul className="mt-3 space-y-2">
+          {targets.map(([key, [target, actual]]) => {
+            const [label, unit] = TARGET_LABELS[key] ?? [key, '']
+            return (
+              <li key={key} className="flex items-center gap-3 text-xs">
+                <span className="w-20 shrink-0 text-secondary">{label}</span>
+                <div className="flex-1">
+                  <Meter label={`${label} done of the target`} value={actual} max={target} />
+                </div>
+                <span className="tabular w-28 shrink-0 text-right text-primary">
+                  {number(actual, unit === 'km' ? 1 : 0)} of {number(target, unit === 'km' ? 1 : 0)} {unit}
+                </span>
+              </li>
+            )
+          })}
+        </ul>
+      )}
     </Card>
   )
 }
@@ -367,7 +440,7 @@ function ClimbingCard({ activity }: { activity: ActivityDetail }) {
   }
   const input = 'w-full rounded-lg border border-line bg-page px-2 py-1.5 text-base text-primary sm:text-sm'
   return (
-    <Card title="Climbing" subtitle="For a treadmill || another session where the watch measured no climbing">
+    <Card title="Climbing" subtitle="For a treadmill or another session where the watch measured no climbing">
       <div className="space-y-3">
         <div className="grid grid-cols-2 gap-3">
           <label className="block text-xs text-muted">
@@ -417,6 +490,7 @@ function ClimbingCard({ activity }: { activity: ActivityDetail }) {
 const LONG_ENOUGH_TO_FUEL_S = 60 * 60
 
 export function ActivityPage({ id }: { id: number }) {
+  const theme = useTheme()
   const activity = useQuery({ queryKey: ['activity', id], queryFn: () => fetchActivity(id) })
   if (activity.isPending) return <p className="text-sm text-muted">Loading…</p>
   if (activity.error) return <p className="text-sm text-critical">{activity.error.message}</p>
@@ -435,8 +509,15 @@ export function ActivityPage({ id }: { id: number }) {
         <button type="button" onClick={() => window.history.back()} className="text-xs text-accent">
           Back
         </button>
-        <h1 className="mt-1 text-lg font-semibold text-primary">{data.name ?? sentence(data.type_key)}</h1>
-        <p className="text-sm text-secondary">
+        <h1 className="mt-1 flex items-center gap-2.5 text-2xl font-semibold tracking-tight text-primary">
+          <span
+            className="h-6 w-1.5 shrink-0 rounded-full"
+            style={{ background: groupColor(theme, data.sport_group) }}
+            aria-hidden
+          />
+          {data.name ?? sentence(data.type_key)}
+        </h1>
+        <p className="mt-0.5 text-sm text-muted">
           {[groupLabel(data.sport_group), sentence(data.type_key)]
             .filter((part, index, parts) => parts.indexOf(part) === index)
             .join(', ')}

@@ -148,7 +148,7 @@ function ZoneLadder({ zones }: { zones: Zones }) {
   )
 }
 
-export function ZonesCard() {
+export function ZonesCard({ className }: { className?: string }) {
   const queryClient = useQueryClient()
   const zones = useQuery({ queryKey: ['zones'], queryFn: fetchZones })
   const [editing, setEditing] = useState(false)
@@ -162,6 +162,7 @@ export function ZonesCard() {
     <Card
       title="Heart rate zones"
       subtitle="Uphill Athlete's five zones from your LT1 and LT2. Zone 2 ends at LT1, zone 3 at LT2."
+      className={className}
     >
       {data && !current && !editing && (
         <div className="space-y-3 text-sm text-secondary">

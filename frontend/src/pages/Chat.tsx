@@ -72,7 +72,7 @@ function Composer({ disabled, onSend }: { disabled: boolean; onSend: (text: stri
   return (
     <form
       onSubmit={submit}
-      className="sticky bottom-0 mt-4 flex items-end gap-2 bg-page pt-2 pb-[max(0.5rem,env(safe-area-inset-bottom))]"
+      className="sticky bottom-[var(--tab-bar)] mt-4 flex items-end gap-2 bg-page pt-2 pb-2 sm:pb-[max(0.5rem,env(safe-area-inset-bottom))]"
     >
       <label htmlFor="chat-input" className="sr-only">
         Message to the coach
@@ -167,10 +167,7 @@ function Thread({
   const items = conversation.data?.items ?? []
   const busy = compacting || (pending !== null && pending.error === null)
   return (
-    <div className="flex min-h-[calc(100dvh-7rem)] min-w-0 flex-col">
-      {conversation.data?.title && (
-        <h2 className="mb-4 text-sm font-semibold break-words text-primary">{conversation.data.title}</h2>
-      )}
+    <div className="flex min-h-[calc(100dvh-7rem-var(--tab-bar))] min-w-0 flex-col">
       <div className="flex-1 space-y-4" aria-live="polite">
         {items.length === 0 && !pending && (
           <div className="space-y-2 pt-4">

@@ -229,11 +229,24 @@ function EntryCard({ entry, library }: { entry: EvidenceEntry; library: Evidence
   const saving = status.isPending
   return (
     <section className="min-w-0 rounded-xl border border-line bg-surface p-4">
-      <a href={paperUrl(entry)} target="_blank" rel="noreferrer" className="text-sm font-semibold text-primary hover:underline">
-        {entry.title}
-      </a>
+      <div className="flex items-start gap-3">
+        <a
+          href={paperUrl(entry)}
+          target="_blank"
+          rel="noreferrer"
+          className="min-w-0 flex-1 text-sm font-semibold text-primary hover:underline"
+        >
+          {entry.title}
+        </a>
+        <span
+          className="shrink-0 rounded-full border border-line bg-raised px-2 py-0.5 text-xs font-semibold text-primary"
+          title="Evidence grade, A is the strongest"
+        >
+          Grade {entry.grade}
+        </span>
+      </div>
       <p className="mt-0.5 text-xs text-muted">
-        {entry.citation}. Grade {entry.grade}, {sentence(entry.design)}
+        {entry.citation}. {sentence(entry.design)}
         {entry.sample_size ? `, n = ${number(entry.sample_size)}` : ''}, effect {sentence(entry.effect).toLowerCase()}
       </p>
       {disputedBy && (
@@ -243,27 +256,27 @@ function EntryCard({ entry, library }: { entry: EvidenceEntry; library: Evidence
         {editing ? (
           <EntryEditor entry={entry} onDone={() => setEditing(false)} />
         ) : (
-          <div className="grid gap-2 sm:grid-cols-2">
-            <div className="sm:col-span-2">
-              <Field label="Claim">{entry.claim}</Field>
-            </div>
-            <Field label="Population">{entry.population}</Field>
-            <Field label="Intervention">{entry.intervention}</Field>
-            <Field label="Outcome">{entry.outcome}</Field>
-            <Field label="Limitations">{entry.limitations}</Field>
-            <div className="sm:col-span-2">
-              <Field label="Takeaway">
-                <span className="text-primary">{entry.takeaway}</span>
-              </Field>
-            </div>
-            {entry.notes && (
-              <div className="sm:col-span-2">
-                <Field label="Your notes">{entry.notes}</Field>
+          <div className="space-y-2">
+            <p className="border-l-2 border-accent pl-3 text-sm text-primary">{entry.takeaway}</p>
+            {entry.notes && <Field label="Your notes">{entry.notes}</Field>}
+            <details className="text-xs text-muted">
+              <summary className="cursor-pointer select-none">
+                Details: claim, population, intervention, outcome, limitations and abstract
+              </summary>
+              <div className="mt-2 grid gap-2 sm:grid-cols-2">
+                <div className="sm:col-span-2">
+                  <Field label="Claim">{entry.claim}</Field>
+                </div>
+                <Field label="Population">{entry.population}</Field>
+                <Field label="Intervention">{entry.intervention}</Field>
+                <Field label="Outcome">{entry.outcome}</Field>
+                <Field label="Limitations">{entry.limitations}</Field>
+                <div className="sm:col-span-2">
+                  <Field label="Abstract">
+                    <span className="whitespace-pre-wrap">{entry.abstract}</span>
+                  </Field>
+                </div>
               </div>
-            )}
-            <details className="text-xs text-muted sm:col-span-2">
-              <summary className="cursor-pointer select-none">Abstract</summary>
-              <p className="mt-1 whitespace-pre-wrap text-secondary">{entry.abstract}</p>
             </details>
           </div>
         )}

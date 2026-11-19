@@ -228,15 +228,18 @@ export default function App() {
     )
   }
   return (
-    <div className="mx-auto min-h-screen max-w-5xl px-4 pt-[max(1rem,env(safe-area-inset-top))] pb-10">
+    <div className="mx-auto min-h-screen max-w-5xl px-4 pt-[max(1rem,env(safe-area-inset-top))] pb-[calc(var(--tab-bar)+2.5rem)]">
       <header className="mb-4 flex items-center justify-between gap-3">
-        <nav className="no-scrollbar -mx-1 flex min-w-0 gap-0.5 overflow-x-auto sm:gap-1">
+        <p className="text-lg font-semibold text-primary sm:hidden">
+          {PAGES.find((p) => p.hash === page)?.label ?? 'Activity'}
+        </p>
+        <nav className="no-scrollbar -mx-1 hidden min-w-0 gap-1 overflow-x-auto sm:flex">
           {PAGES.map((p) => (
             <a
               key={p.hash}
               href={p.hash}
               aria-current={page === p.hash ? 'page' : undefined}
-              className={`shrink-0 rounded-lg px-2 py-1.5 text-sm sm:px-3 ${
+              className={`shrink-0 rounded-lg px-3 py-1.5 text-sm ${
                 page === p.hash ? 'bg-raised font-semibold text-primary' : 'text-secondary hover:bg-raised'
               }`}
             >
@@ -265,6 +268,24 @@ export default function App() {
           {pageElement(page)}
         </Suspense>
       </main>
+      <nav
+        aria-label="Pages"
+        className="fixed inset-x-0 bottom-0 z-20 flex border-t border-line bg-surface pb-[env(safe-area-inset-bottom)] sm:hidden"
+      >
+        {PAGES.map((p) => (
+          <a
+            key={p.hash}
+            href={p.hash}
+            aria-current={page === p.hash ? 'page' : undefined}
+            className={`flex h-[3.25rem] min-w-0 flex-1 flex-col items-center justify-center gap-1 text-[0.6875rem] ${
+              page === p.hash ? 'font-semibold text-primary' : 'text-muted'
+            }`}
+          >
+            <span className={`h-0.5 w-5 rounded-full ${page === p.hash ? 'bg-accent' : 'bg-transparent'}`} aria-hidden />
+            {p.label}
+          </a>
+        ))}
+      </nav>
     </div>
   )
 }

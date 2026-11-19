@@ -65,6 +65,16 @@
   --color-critical: var(--status-critical);
 }
 
+:root {
+  --tab-bar: calc(3.25rem + env(safe-area-inset-bottom));
+}
+
+@media (min-width: 40rem) {
+  :root {
+    --tab-bar: 0rem;
+  }
+}
+
 body {
   margin: 0;
   background: var(--page);

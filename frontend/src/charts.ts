@@ -162,7 +162,7 @@ export function loadOption(theme: Theme, load: Load[]): EChartsCoreOption {
         name: 'Load that day',
         type: 'bar',
         barMaxWidth: 6,
-        itemStyle: { color: theme.gridline, borderRadius: [2, 2, 0, 0] },
+        itemStyle: { color: theme.textMuted, opacity: 0.5, borderRadius: [2, 2, 0, 0] },
         data: load.map((d) => Math.round(d.load)),
       },
       {

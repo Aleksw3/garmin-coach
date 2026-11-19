@@ -9,12 +9,13 @@ import {
   saveTopic,
   sendTestNotification,
   type Usage,
+  type UsageRow,
 } from '../api'
 import { dailyCostOption } from '../charts'
 import { Card, DataTable, TableToggle } from '../components/Card'
 import { Chart } from '../components/Chart'
 import { ClaudeForm, GarminStatus, KeyHelp } from '../components/Setup'
-import { addDays, localToday, number } from '../format'
+import { addDays, localToday, number, shortDate } from '../format'
 import { useTheme } from '../theme'
 
 const WARN_SHARE = 0.8
@@ -251,6 +252,31 @@ function ClaudeCard({ usage }: { usage: Usage }) {
   )
 }
 
+type CallGroup = Pick<
+  UsageRow,
+  'model' | 'purpose' | 'input_tokens' | 'cache_write_tokens' | 'cache_read_tokens' | 'output_tokens' | 'cost_usd'
+> & { day: string; calls: number }
+
+function callGroups(rows: UsageRow[]): CallGroup[] {
+  const groups = new Map<string, CallGroup>()
+  for (const row of rows) {
+    const day = new Date(row.created_at).toLocaleDateString('sv-SE')
+    const key = `${day} ${row.purpose} ${row.model}`
+    const group = groups.get(key)
+    if (group) {
+      group.calls += 1
+      group.input_tokens += row.input_tokens
+      group.cache_write_tokens += row.cache_write_tokens
+      group.cache_read_tokens += row.cache_read_tokens
+      group.output_tokens += row.output_tokens
+      group.cost_usd += row.cost_usd
+    } else {
+      groups.set(key, { ...row, day, calls: 1 })
+    }
+  }
+  return [...groups.values()]
+}
+
 export function SettingsPage() {
   const [recentRows, setRecentRows] = useState(RECENT_ROWS)
   const usage = useQuery({ queryKey: ['usage', recentRows], queryFn: () => fetchUsage(recentRows) })
@@ -258,11 +284,7 @@ export function SettingsPage() {
   if (usage.error) return <p className="text-sm text-critical">{usage.error.message}</p>
   const data = usage.data
   return (
-    <div className="grid gap-4 lg:grid-cols-2">
-      <Card title="API cost this month" subtitle="Claude API spending for everyone against the shared monthly budget">
-        <BudgetMeter usage={data} />
-      </Card>
-      <ClaudeCard usage={data} />
+    <div className="grid items-start gap-4 lg:grid-cols-2">
       <Card title="Garmin" subtitle="This person's Garmin Connect login and history">
         <GarminStatus slug={currentProfile() ?? ''} />
         <a href="#add-person" className="mt-4 inline-block text-sm text-accent">
@@ -270,24 +292,51 @@ export function SettingsPage() {
         </a>
       </Card>
       <NotificationsCard />
+      <Card title="API cost this month" subtitle="Claude API spending for everyone against the shared monthly budget">
+        <BudgetMeter usage={data} />
+      </Card>
+      <ClaudeCard usage={data} />
       <CostHistoryCard />
-      <Card title="Recent API calls" subtitle="Cache reads cost a tenth of normal input or less" className="lg:col-span-2">
+      <Card
+        title="Recent API calls"
+        subtitle="Grouped by day, purpose and model. Cache reads cost a tenth of normal input or less" className="lg:col-span-2">
         {data.recent.length === 0 ? (
           <p className="text-sm text-muted">No calls yet.</p>
         ) : (
-          <DataTable
-            columns={['Time', 'Model', 'Purpose', 'Input', 'Cache write', 'Cache read', 'Output', 'Cost']}
-            rows={data.recent.map((row) => [
-              new Date(row.created_at).toLocaleString('en-GB', { dateStyle: 'short', timeStyle: 'short' }),
-              row.model,
-              row.purpose,
-              number(row.input_tokens),
-              number(row.cache_write_tokens),
-              number(row.cache_read_tokens),
-              number(row.output_tokens),
-              dollars(row.cost_usd, 4),
-            ])}
-          />
+          <>
+            <DataTable
+              columns={['Day', 'Purpose', 'Model', 'Calls', 'Input', 'Cache write', 'Cache read', 'Output', 'Cost']}
+              rows={callGroups(data.recent).map((group) => [
+                shortDate(group.day),
+                group.purpose,
+                group.model,
+                number(group.calls),
+                number(group.input_tokens),
+                number(group.cache_write_tokens),
+                number(group.cache_read_tokens),
+                number(group.output_tokens),
+                dollars(group.cost_usd, 4),
+              ])}
+            />
+            <details className="mt-3 text-xs text-muted">
+              <summary className="cursor-pointer select-none">Show every call</summary>
+              <div className="mt-2">
+                <DataTable
+                  columns={['Time', 'Model', 'Purpose', 'Input', 'Cache write', 'Cache read', 'Output', 'Cost']}
+                  rows={data.recent.map((row) => [
+                    new Date(row.created_at).toLocaleString('en-GB', { dateStyle: 'short', timeStyle: 'short' }),
+                    row.model,
+                    row.purpose,
+                    number(row.input_tokens),
+                    number(row.cache_write_tokens),
+                    number(row.cache_read_tokens),
+                    number(row.output_tokens),
+                    dollars(row.cost_usd, 4),
+                  ])}
+                />
+              </div>
+            </details>
+          </>
         )}
         {recentRows < MORE_RECENT_ROWS && data.recent.length === recentRows && (
           <button

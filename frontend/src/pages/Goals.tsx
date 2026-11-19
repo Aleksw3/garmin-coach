@@ -25,7 +25,8 @@ import {
 import { courseOption, progressOption } from '../charts'
 import { Card, DataTable } from '../components/Card'
 import { Chart } from '../components/Chart'
-import { duration, number, shortDate } from '../format'
+import { RangeTrack } from '../components/Metric'
+import { duration, localToday, number, shortDate } from '../format'
 import { useTheme } from '../theme'
 
 const EMPTY_GOAL: GoalInput = {
@@ -171,13 +172,76 @@ function GoalForm({
   )
 }
 
-function goalFacts(goal: Goal): string[] {
-  return [
-    goal.target_date ? new Date(`${goal.target_date}T00:00:00Z`).toLocaleDateString('en-GB', { dateStyle: 'long', timeZone: 'UTC' }) : null,
-    goal.target,
-    goal.distance_km !== null ? `${number(goal.distance_km, 1)} km` : null,
-    goal.elevation_gain_m !== null ? `${number(goal.elevation_gain_m)} m climbing` : null,
-  ].filter((fact): fact is string => fact !== null)
+const DAY_MS = 86_400_000
+const COUNT_IN_DAYS_BELOW = 21
+
+function timeLeft(targetDate: string): string {
+  const days = Math.round((Date.parse(targetDate) - Date.parse(localToday())) / DAY_MS)
+  if (days === 0) return 'Today'
+  const count = Math.abs(days) < COUNT_IN_DAYS_BELOW ? Math.abs(days) : Math.round(Math.abs(days) / 7)
+  const unit = Math.abs(days) < COUNT_IN_DAYS_BELOW ? 'day' : 'week'
+  const amount = `${count} ${unit}${count === 1 ? '' : 's'}`
+  return days > 0 ? `${amount} to go` : `${amount} ago`
+}
+
+type Fact = { label: string; value: string; detail?: string }
+
+function goalFacts(goal: Goal): Fact[] {
+  const facts: (Fact | null)[] = [
+    goal.target_date
+      ? {
+          label: 'Date',
+          value: timeLeft(goal.target_date),
+          detail: new Date(`${goal.target_date}T00:00:00Z`).toLocaleDateString('en-GB', {
+            dateStyle: 'long',
+            timeZone: 'UTC',
+          }),
+        }
+      : null,
+    goal.target ? { label: 'Target', value: goal.target.replace(/^./, (first) => first.toUpperCase()) } : null,
+    goal.distance_km !== null ? { label: 'Distance', value: `${number(goal.distance_km, 1)} km` } : null,
+    goal.elevation_gain_m !== null ? { label: 'Climbing', value: `${number(goal.elevation_gain_m)} m` } : null,
+  ]
+  return facts.filter((fact) => fact !== null)
+}
+
+function FinishEstimate({ goal, courseKey }: { goal: Goal; courseKey: string }) {
+  const projection = useQuery({
+    queryKey: ['projection', goal.id, goal.distance_km, goal.elevation_gain_m, courseKey],
+    queryFn: () => fetchProjection(goal.id),
+  })
+  const progress = useQuery({
+    queryKey: ['progress', goal.id, goal.target, goal.target_date, goal.distance_km, goal.elevation_gain_m, courseKey],
+    queryFn: () => fetchProgress(goal.id),
+  })
+  const estimate = projection.data
+  const target = progress.data?.target_s ?? null
+  if (!estimate || target === null) return null
+  return (
+    <div className="max-w-md rounded-lg border border-line p-3">
+      <div className="flex justify-between gap-3 text-xs text-secondary">
+        <span>
+          Target <span className="tabular text-primary">{duration(target)}</span>
+        </span>
+        <span>
+          Estimate{' '}
+          <span className="tabular text-primary">
+            {duration(estimate.fast_s)} to {duration(estimate.slow_s)}
+          </span>
+        </span>
+      </div>
+      <div className="mt-2">
+        <RangeTrack
+          label="The target time against the finish estimate"
+          low={estimate.fast_s}
+          high={estimate.slow_s}
+          value={target}
+          tone={target >= estimate.fast_s ? 'good' : 'accent'}
+        />
+      </div>
+      <p className="mt-2 text-xs text-muted">The dot is the target and the band is the estimate. Faster is to the left.</p>
+    </div>
+  )
 }
 
 function slopeText(slope: CourseSlope): string {
@@ -347,6 +411,7 @@ function CourseSection({ goal }: { goal: Goal }) {
   const courseKey = course.data ? `${course.data.distance_km} ${course.data.gain_m}` : ''
   return (
     <div className="space-y-2 pt-1">
+      <FinishEstimate goal={goal} courseKey={courseKey} />
       <ProjectionSection goal={goal} courseKey={courseKey} />
       <ProgressSection goal={goal} courseKey={courseKey} />
       {course.data && <CourseProfile course={course.data} />}
@@ -391,15 +456,25 @@ function GoalCard({ goal, onSave, onDelete }: { goal: Goal; onSave: (g: GoalInpu
     )
   }
   return (
-    <div className="space-y-1">
-      <div className="flex flex-wrap items-baseline gap-2">
-        <h3 className="text-base font-semibold text-primary">{goal.title}</h3>
-        <span className="text-xs text-muted">
-          {goal.kind}, priority {goal.priority}
+    <div className="space-y-2">
+      <div className="flex flex-wrap items-center gap-2">
+        <h3 className="text-xl font-semibold tracking-tight text-primary">{goal.title}</h3>
+        <span className="rounded-full border border-line px-2 py-0.5 text-xs text-secondary">
+          {goal.kind.replace(/^./, (first) => first.toUpperCase())}, priority {goal.priority}
           {goal.status !== 'active' && `, ${goal.status}`}
         </span>
       </div>
-      <p className="text-sm text-secondary">{goalFacts(goal).join(' · ')}</p>
+      {goalFacts(goal).length > 0 && (
+        <dl className="grid grid-cols-2 gap-2 sm:grid-cols-4">
+          {goalFacts(goal).map((fact) => (
+            <div key={fact.label} className="rounded-lg bg-raised p-3">
+              <dt className="text-xs text-muted">{fact.label}</dt>
+              <dd className="tabular mt-0.5 text-lg font-semibold text-primary">{fact.value}</dd>
+              {fact.detail && <dd className="text-xs text-secondary">{fact.detail}</dd>}
+            </div>
+          ))}
+        </dl>
+      )}
       {goal.terrain && <p className="text-sm text-secondary">{goal.terrain}</p>}
       {goal.cutoffs && <p className="text-sm text-secondary">Cutoffs: {goal.cutoffs}</p>}
       {goal.notes && <p className="text-xs text-muted">{goal.notes}</p>}
@@ -569,7 +644,24 @@ function ProfileCard() {
   const profile = useQuery({ queryKey: ['profile'], queryFn: fetchProfile })
   return (
     <Card title="Profile" subtitle="Background the coach uses when it plans">
-      {profile.data ? <ProfileForm initial={profile.data} /> : <p className="text-sm text-muted">Loading…</p>}
+      {profile.data ? (
+        <details open={!profile.data.name}>
+          <summary className="cursor-pointer text-sm text-secondary select-none">
+            {[
+              profile.data.name,
+              profile.data.birth_year ? `born ${profile.data.birth_year}` : null,
+              profile.data.height_cm ? `${number(profile.data.height_cm)} cm` : null,
+            ]
+              .filter(Boolean)
+              .join(', ') || 'Fill in your profile'}
+          </summary>
+          <div className="mt-3">
+            <ProfileForm initial={profile.data} />
+          </div>
+        </details>
+      ) : (
+        <p className="text-sm text-muted">Loading…</p>
+      )}
     </Card>
   )
 }
@@ -608,7 +700,7 @@ function NotesCard() {
 
 export function GoalsPage() {
   return (
-    <div className="grid gap-4 lg:grid-cols-2">
+    <div className="grid items-start gap-4 lg:grid-cols-2">
       <GoalsCard />
       <ProfileCard />
       <NotesCard />

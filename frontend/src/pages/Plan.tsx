@@ -24,8 +24,8 @@ import {
 import { Card } from '../components/Card'
 import { applyEvent, type Pending } from '../chatEvents'
 import { Bubble } from '../components/ChatParts'
+import { Meter } from '../components/Metric'
 import { SessionDialog } from '../components/SessionDetail'
-import { sessionStatus } from '../sessions'
 import { addDays, dayLabel, duration, localToday, mondayOf, number, shortDate } from '../format'
 import { groupColor, groupLabel, useTheme, type Theme } from '../theme'
 
@@ -313,20 +313,60 @@ function PlanRequest() {
   )
 }
 
+const DAY_MS = 24 * 60 * 60 * 1000
+
+function daysBetween(first: string, last: string): number {
+  return Math.round((Date.parse(last) - Date.parse(first)) / DAY_MS)
+}
+
+function BlockProgress({ start, end, today }: { start: string; end: string; today: string }) {
+  const weeks = Math.ceil((daysBetween(start, end) + 1) / 7)
+  const current = Math.floor(daysBetween(start, today) / 7) + 1
+  return (
+    <span className="mt-2 ml-4 flex max-w-xs items-center gap-2 text-xs text-secondary">
+      <span className="flex flex-1 gap-0.5" aria-hidden>
+        {Array.from({ length: weeks }, (_, index) => (
+          <span
+            key={index}
+            className={`h-1.5 flex-1 rounded-full ${index < current ? 'bg-accent' : 'bg-raised'} ${index < current - 1 ? 'opacity-50' : ''}`}
+          />
+        ))}
+      </span>
+      <span className="tabular shrink-0">
+        Week {current} of {weeks}
+      </span>
+    </span>
+  )
+}
+
 function SessionCard({ session, today, onOpen }: { session: PlannedSession; today: string; onOpen: () => void }) {
   const theme = useTheme()
-  const status = sessionStatus(session, today)
+  const missed = !session.match && !session.skipped && session.day < today && session.sport !== 'rest'
   return (
     <button
       type="button"
       onClick={onOpen}
-      className={`block w-full rounded-lg border border-line bg-surface px-2 py-1.5 text-left text-xs hover:bg-raised ${session.skipped ? 'opacity-60' : ''}`}
+      className={`block w-full rounded-lg border border-line bg-surface px-2 py-1.5 text-left text-xs hover:bg-raised ${session.skipped || missed ? 'opacity-60' : ''}`}
       style={{ borderLeft: `3px solid ${sportColor(theme, session.sport)}` }}
     >
       <span className="block font-semibold text-primary">{session.title}</span>
       <span className="block text-secondary">{targets(session) || session.kind}</span>
-      {status && (
-        <span className={`block ${session.match ? 'text-secondary' : 'text-muted'}`}>{status.split(',')[0]}</span>
+      {session.match && (
+        <span className="mt-0.5 block text-secondary">
+          <span className="text-good" aria-hidden>
+            ✓
+          </span>{' '}
+          Done{session.match.compliance !== null ? `, ${number(session.match.compliance)}%` : ''}
+        </span>
+      )}
+      {session.skipped && <span className="mt-0.5 block text-muted">Skipped</span>}
+      {missed && (
+        <span className="mt-0.5 block text-secondary">
+          <span className="text-warning" aria-hidden>
+            ▲
+          </span>{' '}
+          Not done
+        </span>
       )}
     </button>
   )
@@ -370,17 +410,23 @@ function WeekRow({
   onOpen: (id: number) => void
 }) {
   const days = Array.from({ length: 7 }, (_, index) => addDays(monday, index))
-  const plannedMinutes = sessions
-    .filter((s) => !s.skipped)
-    .reduce((sum, s) => sum + (s.duration_min ?? 0), 0)
+  const planned = sessions.filter((s) => !s.skipped && s.sport !== 'rest')
+  const plannedSeconds = planned.reduce((sum, s) => sum + (s.duration_min ?? 0), 0) * 60
+  const sessionsDone = planned.filter((s) => s.match).length
   const thisMonday = mondayOf(today)
   return (
     <details className="min-w-0" open={monday >= thisMonday}>
       <summary className="mb-2 cursor-pointer text-sm font-semibold text-primary select-none">
         {monday === thisMonday ? 'This week' : `Week from ${shortDate(monday)}`}
-        <span className="ml-2 text-xs font-normal text-muted">
-          planned {duration(plannedMinutes * 60)}, done {duration(doneSeconds)}
+        <span className="tabular ml-4 block text-xs font-normal text-muted sm:ml-2 sm:inline">
+          {duration(doneSeconds)} done of {duration(plannedSeconds)} planned
+          {planned.length > 0 && `, ${sessionsDone} of ${planned.length} sessions`}
         </span>
+        {plannedSeconds > 0 && (
+          <div className="mt-1.5 ml-4 max-w-xs">
+            <Meter label="Time done of time planned" value={doneSeconds} max={plannedSeconds} />
+          </div>
+        )}
         {season && (
           <span className="block text-xs font-normal text-secondary">
             {season.phase.charAt(0).toUpperCase() + season.phase.slice(1)} week, outline {seasonTargets(season)}
@@ -421,6 +467,24 @@ function WeekRow({
       </div>
     </details>
   )
+}
+
+type Week = {
+  monday: string
+  sessions: PlannedSession[]
+  activities: Activity[]
+  season?: SeasonWeekSpec
+  empty: boolean
+}
+
+function weekRuns(weeks: Week[]): { empty: boolean; weeks: Week[] }[] {
+  const runs: { empty: boolean; weeks: Week[] }[] = []
+  for (const week of weeks) {
+    const last = runs[runs.length - 1]
+    if (last && last.empty === week.empty) last.weeks.push(week)
+    else runs.push({ empty: week.empty, weeks: [week] })
+  }
+  return runs
 }
 
 const REASONS: Record<UnavailableReason, string> = {
@@ -541,6 +605,28 @@ export function PlanPage() {
   const futureSessions = data?.sessions.filter((s) => s.day >= today).length ?? 0
   const [openId, setOpenId] = useState<number | null>(null)
   const open = data?.sessions.find((s) => s.id === openId)
+  const weeks: Week[] = mondays.map((monday) => {
+    const sunday = addDays(monday, 6)
+    const sessions = data?.sessions.filter((s) => mondayOf(s.day) === monday) ?? []
+    const activities =
+      data?.activities.filter(
+        (a) => a.sport_group !== 'commute' && mondayOf(a.start_time_local.slice(0, 10)) === monday,
+      ) ?? []
+    const weekSeason = season.data?.find((week) => week.week_start === monday)
+    const isAway = (away.data ?? []).some((period) => period.first_day <= sunday && monday <= period.last_day)
+    return {
+      monday,
+      sessions,
+      activities,
+      season: weekSeason,
+      empty:
+        sessions.length === 0 &&
+        activities.length === 0 &&
+        weekSeason === undefined &&
+        !isAway &&
+        monday !== mondayOf(today),
+    }
+  })
 
   return (
     <div className="space-y-4">
@@ -557,6 +643,7 @@ export function PlanPage() {
               {shortDate(plan.end_date)}
               {current && <span className="ml-2 text-xs font-semibold text-accent">Now</span>}
               {about && <span className="mt-0.5 block text-xs text-secondary">{about.summary}</span>}
+              {current && <BlockProgress start={plan.start_date} end={plan.end_date} today={today} />}
             </summary>
             {about && about.points.length > 0 && <DescriptionPoints points={about.points} />}
           </details>
@@ -593,24 +680,28 @@ export function PlanPage() {
       {calendar.error && <p className="text-sm text-critical">{calendar.error.message}</p>}
       {data && (
         <div className="space-y-6">
-          {mondays.map((monday) => {
-            const weekActivities = data.activities.filter(
-              (a) => a.sport_group !== 'commute' && mondayOf(a.start_time_local.slice(0, 10)) === monday,
-            )
-            return (
-              <WeekRow
-                key={monday}
-                monday={monday}
-                today={today}
-                season={season.data?.find((week) => week.week_start === monday)}
-                away={away.data ?? []}
-                sessions={data.sessions.filter((s) => mondayOf(s.day) === monday)}
-                activities={weekActivities.filter((a) => !matched.has(a.id))}
-                doneSeconds={weekActivities.reduce((sum, a) => sum + (a.duration_s ?? 0), 0)}
-                onOpen={setOpenId}
-              />
-            )
-          })}
+          {weekRuns(weeks).map((run) =>
+            run.empty ? (
+              <p key={run.weeks[0].monday} className="text-sm text-muted">
+                Nothing planned or done from {shortDate(run.weeks[0].monday)} to{' '}
+                {shortDate(addDays(run.weeks[run.weeks.length - 1].monday, 6))}
+              </p>
+            ) : (
+              run.weeks.map((week) => (
+                <WeekRow
+                  key={week.monday}
+                  monday={week.monday}
+                  today={today}
+                  season={week.season}
+                  away={away.data ?? []}
+                  sessions={week.sessions}
+                  activities={week.activities.filter((a) => !matched.has(a.id))}
+                  doneSeconds={week.activities.reduce((sum, a) => sum + (a.duration_s ?? 0), 0)}
+                  onOpen={setOpenId}
+                />
+              ))
+            ),
+          )}
         </div>
       )}
       {open && <SessionDialog key={open.id} session={open} today={today} onClose={() => setOpenId(null)} />}

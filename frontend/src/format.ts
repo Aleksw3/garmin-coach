@@ -58,3 +58,17 @@ export function dayLabel(isoDate: string): string {
     timeZone: 'UTC',
   })
 }
+
+export function clock(seconds: number): string {
+  const minutes = Math.round(seconds / 60)
+  return `${Math.floor(minutes / 60)}:${(minutes % 60).toString().padStart(2, '0')}`
+}
+
+export function longDay(isoDate: string): string {
+  return new Date(`${isoDate}T00:00:00Z`).toLocaleDateString('en-GB', {
+    weekday: 'long',
+    day: 'numeric',
+    month: 'long',
+    timeZone: 'UTC',
+  })
+}

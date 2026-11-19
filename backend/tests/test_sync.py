@@ -1,11 +1,14 @@
 from datetime import date
 
 import pytest
+import requests
+from garminconnect import GarminConnectAuthenticationError
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session, sessionmaker
 
 from garmin_coach import raw_store
-from garmin_coach.garmin.source import DAILY_KINDS, GarminRateLimited
+from garmin_coach.garmin.connect import translated_errors
+from garmin_coach.garmin.source import DAILY_KINDS, GarminAuthError, GarminError, GarminRateLimited
 from garmin_coach.models import Activity, BodyComposition, DailyWellness, StrengthSet, SyncRun
 from garmin_coach.sync import BACKFILL_CURSOR, SyncService, get_state
 from tests.garmin_data import FakeGarmin, activity_summary
@@ -119,3 +122,21 @@ def test_recent_sync_refreshes_only_the_last_days(
     assert garmin.count("daily") == 2 * len(DAILY_KINDS)
     refreshed_activities = {args[0] for name, args in garmin.calls if name == "activity"}
     assert refreshed_activities == {1}
+
+
+def login_failure(cause: Exception) -> GarminConnectAuthenticationError:
+    error = GarminConnectAuthenticationError("Failed to retrieve social profile")
+    error.__cause__ = cause
+    return error
+
+
+def test_a_login_that_fails_without_a_network_is_not_an_auth_error() -> None:
+    with pytest.raises(GarminError) as raised, translated_errors():
+        raise login_failure(requests.ConnectionError("Temporary failure in name resolution"))
+
+    assert not isinstance(raised.value, GarminAuthError)
+
+
+def test_a_rejected_login_is_an_auth_error() -> None:
+    with pytest.raises(GarminAuthError), translated_errors():
+        raise login_failure(ValueError("401 Unauthorized"))

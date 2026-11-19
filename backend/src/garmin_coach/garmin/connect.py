@@ -12,6 +12,8 @@ from garminconnect import (
     GarminConnectNotFoundError,
     GarminConnectTooManyRequestsError,
 )
+from requests.exceptions import ConnectionError as NetworkError
+from requests.exceptions import Timeout
 
 from garmin_coach.garmin.source import (
     GarminAuthError,
@@ -37,6 +39,15 @@ DAILY_METHODS = {
 }
 
 
+def network_was_down(error: BaseException | None) -> bool:
+    """garminconnect reports every failed profile request as a failed login."""
+    while error is not None:
+        if isinstance(error, NetworkError | Timeout):
+            return True
+        error = error.__cause__
+    return False
+
+
 @contextmanager
 def translated_errors() -> Iterator[None]:
     try:
@@ -44,6 +55,8 @@ def translated_errors() -> Iterator[None]:
     except GarminConnectTooManyRequestsError as e:
         raise GarminRateLimited(str(e)) from e
     except GarminConnectAuthenticationError as e:
+        if network_was_down(e):
+            raise GarminError(f"No connection to Garmin: {e}") from e
         raise GarminAuthError(str(e)) from e
     except GarminConnectNotFoundError as e:
         raise GarminNotFound(str(e)) from e

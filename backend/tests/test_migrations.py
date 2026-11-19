@@ -1,5 +1,6 @@
 from pathlib import Path
 
+import pytest
 import sqlalchemy as sa
 from alembic import command
 from alembic.autogenerate import compare_metadata
@@ -55,12 +56,15 @@ def test_connections_use_wal_without_waiting_on_every_commit(database_url: str) 
     assert actual == expected
 
 
-def test_adding_the_descent_scan_keeps_the_rows_that_belong_to_activities(tmp_path: Path) -> None:
+@pytest.mark.parametrize("start", ["0018", "0019"])
+def test_adding_a_column_to_activity_keeps_the_rows_that_belong_to_activities(
+    tmp_path: Path, start: str
+) -> None:
     url = f"sqlite:///{tmp_path / 'coach.db'}"
     config = Config()
     config.set_main_option("script_location", str(MIGRATIONS_DIR))
     config.set_main_option("sqlalchemy.url", url)
-    command.upgrade(config, "0018")
+    command.upgrade(config, start)
     with create_db_engine(url).begin() as connection:
         connection.execute(
             sa.text(

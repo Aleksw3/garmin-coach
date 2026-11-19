@@ -18,10 +18,10 @@ depends_on: Union[str, Sequence[str], None] = None
 
 
 def upgrade() -> None:
-    with op.batch_alter_table("activity") as batch:
-        batch.add_column(sa.Column("elevation_gain_override_m", sa.Float(), nullable=True))
+    # A plain ADD COLUMN, because a batch operation can rebuild the activity table, and dropping
+    # the old table deletes every row that refers to an activity.
+    op.add_column("activity", sa.Column("elevation_gain_override_m", sa.Float(), nullable=True))
 
 
 def downgrade() -> None:
-    with op.batch_alter_table("activity") as batch:
-        batch.drop_column("elevation_gain_override_m")
+    op.drop_column("activity", "elevation_gain_override_m")
